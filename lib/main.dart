@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:smartspend/screens/login_screen.dart';
 
 // import 'screens/login_screen.dart';
 // import 'screens/forgot_password_screen.dart';
@@ -19,6 +20,7 @@ class SmartSpendApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       home: const AppShell(),
+      // home: const LoginScreen(),
     );
   }
 }

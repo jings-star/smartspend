@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/logout_sheet.dart';
-import 'currency_sheet.dart';
+import '../widgets/currency_sheet.dart';
 import 'edit_profile_screen.dart';
 import 'preferences_screen.dart';
 import 'category_screen.dart';
+import 'app_shell.dart';
+import 'payment_methods_screen.dart';
+import 'recurring_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -67,7 +70,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Payment Method',
                   icon: Icons.credit_card_outlined,
                   tint: AppColors.terracottaTint,
-                  onTap: () {}, // TODO
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const PaymentMethodsScreen()),
+                  ), // TODO
                 ),
                 _MenuItem(
                   title: 'Preferences',
@@ -83,7 +90,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Recurring Transactions',
                   icon: Icons.event_repeat_outlined,
                   tint: AppColors.goldTint,
-                  onTap: () {}, // TODO
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const RecurringScreen()),
+                  ),
                 ),
                 _MenuItem(
                   title: 'Categories',
@@ -107,9 +118,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 if (confirmed && context.mounted) {
                   // TODO: AuthService sign out, then go back to the login
                   // screen, e.g.
-                  // Navigator.pushAndRemoveUntil(context,
-                  //   MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  //   (_) => false);
+                  Navigator.pushAndRemoveUntil(context,
+                    MaterialPageRoute(builder: (_) => const AppShell()),
+                    (_) => false);
                 }
               },
             ),

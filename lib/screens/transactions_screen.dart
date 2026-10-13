@@ -11,10 +11,21 @@ import 'transaction_details_screen.dart';
 import 'summary_card.dart';
 import 'transaction_group_card.dart';
 import 'quick_add_screen.dart';
+import 'budget_screen.dart';
 
 const _monthNames = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 class TransactionsScreen extends StatefulWidget {
@@ -40,9 +51,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final inMonth = _filter.hasDateRange
         ? _all
         : _all
-            .where((t) =>
-                t.date.year == _month.year && t.date.month == _month.month)
-            .toList();
+              .where(
+                (t) =>
+                    t.date.year == _month.year && t.date.month == _month.month,
+              )
+              .toList();
     return _filter.apply(inMonth);
   }
 
@@ -52,8 +65,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (mode == AddMode.full) {
       final added = await Navigator.push<List<TransactionItem>>(
         context,
-        MaterialPageRoute(
-            builder: (_) => AddTransactionScreen(existing: _all)),
+        MaterialPageRoute(builder: (_) => AddTransactionScreen(existing: _all)),
       );
       _addItems(added);
     } else {
@@ -86,8 +98,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         break;
       case TransactionDetailAction.delete:
         setState(() => _all.removeWhere((x) => x.id == t.id));
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Transaction deleted')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Transaction deleted')));
         break;
     }
   }
@@ -120,7 +133,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               date: r.date,
               paymentMethod: r.paymentMethod,
               receiptPath: t.receiptPath,
-            )
+            ),
           ]
         : [
             for (var i = 0; i < r.splits.length; i++)
@@ -133,7 +146,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 date: r.date,
                 paymentMethod: r.paymentMethod,
                 receiptPath: t.receiptPath,
-              )
+              ),
           ];
 
     setState(() {
@@ -178,12 +191,24 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(
                 children: [
-                  Text(_monthLabel,
-                      style: AppTheme.heading(17, color: AppColors.text)),
+                  Text(
+                    _monthLabel,
+                    style: AppTheme.heading(17, color: AppColors.text),
+                  ),
                   const Spacer(),
-                  _roundIcon(Icons.search, _openFilter, active: _filter.isActive),
+                  _roundIcon(
+                    Icons.search,
+                    _openFilter,
+                    active: _filter.isActive,
+                  ),
                   const SizedBox(width: 8),
-                  _roundIcon(Icons.calendar_month_outlined, () {}),
+                  _roundIcon(
+                    Icons.calendar_month_outlined,
+                    () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const BudgetScreen()),
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   _roundIcon(Icons.calculate_outlined, () {}, filled: true),
                 ],
@@ -196,49 +221,68 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
-                      onPressed: () => _shiftMonth(-1),
-                      icon: const Icon(Icons.chevron_left,
-                          color: AppColors.textMuted)),
-                  Text(_monthLabel,
-                      style: AppTheme.heading(20, color: AppColors.text)),
+                    onPressed: () => _shiftMonth(-1),
+                    icon: const Icon(
+                      Icons.chevron_left,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                  Text(
+                    _monthLabel,
+                    style: AppTheme.heading(20, color: AppColors.text),
+                  ),
                   IconButton(
-                      onPressed: () => _shiftMonth(1),
-                      icon: const Icon(Icons.chevron_right,
-                          color: AppColors.textMuted)),
+                    onPressed: () => _shiftMonth(1),
+                    icon: const Icon(
+                      Icons.chevron_right,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(children: [
-                Expanded(
+              child: Row(
+                children: [
+                  Expanded(
                     child: SummaryCard(
-                        label: 'Income',
-                        amount: income,
-                        dotColor: AppColors.sage,
-                        amountColor: AppColors.text)),
-                const SizedBox(width: 10),
-                Expanded(
+                      label: 'Income',
+                      amount: income,
+                      dotColor: AppColors.sage,
+                      amountColor: AppColors.text,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: SummaryCard(
-                        label: 'Expense',
-                        amount: expense,
-                        dotColor: AppColors.terracottaDark,
-                        amountColor: AppColors.terracottaDark)),
-                const SizedBox(width: 10),
-                Expanded(
+                      label: 'Expense',
+                      amount: expense,
+                      dotColor: AppColors.terracottaDark,
+                      amountColor: AppColors.terracottaDark,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: SummaryCard(
-                        label: 'Balance',
-                        amount: income - expense,
-                        dotColor: AppColors.gold,
-                        amountColor: AppColors.gold)),
-              ]),
+                      label: 'Balance',
+                      amount: income - expense,
+                      dotColor: AppColors.gold,
+                      amountColor: AppColors.gold,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             Expanded(
               child: items.isEmpty
                   ? const Center(
-                      child: Text('No transactions found',
-                          style: TextStyle(color: AppColors.textMuted)))
+                      child: Text(
+                        'No transactions found',
+                        style: TextStyle(color: AppColors.textMuted),
+                      ),
+                    )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
                       children: [
@@ -264,8 +308,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  Widget _roundIcon(IconData icon, VoidCallback onTap,
-      {bool filled = false, bool active = false}) {
+  Widget _roundIcon(
+    IconData icon,
+    VoidCallback onTap, {
+    bool filled = false,
+    bool active = false,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -275,13 +323,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           color: filled ? AppColors.terracotta : AppColors.paper,
           shape: BoxShape.circle,
           border: Border.all(
-              color: active ? AppColors.terracotta : AppColors.border),
+            color: active ? AppColors.terracotta : AppColors.border,
+          ),
         ),
-        child: Icon(icon,
-            size: 16,
-            color: filled
-                ? Colors.white
-                : (active ? AppColors.terracotta : AppColors.textMuted)),
+        child: Icon(
+          icon,
+          size: 16,
+          color: filled
+              ? Colors.white
+              : (active ? AppColors.terracotta : AppColors.textMuted),
+        ),
       ),
     );
   }

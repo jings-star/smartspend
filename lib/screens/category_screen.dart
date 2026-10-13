@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/category_form_sheet.dart';
+import '../widgets/confirm_delete_dialog.dart';
 import '../widgets/round_back_button.dart';
 
 class CategoryItem {
@@ -24,7 +26,6 @@ class CategoryScreen extends StatefulWidget {
 
 class _CategoryScreenState extends State<CategoryScreen> {
   bool isExpense = true;
-  bool isEditing = true;
 
   final List<CategoryItem> expenseCategories = [
     CategoryItem(
@@ -80,217 +81,59 @@ class _CategoryScreenState extends State<CategoryScreen> {
   List<CategoryItem> get categories =>
       isExpense ? expenseCategories : incomeCategories;
 
-  final List<IconData> categoryIcons = [
-    Icons.restaurant,
-    Icons.shopping_bag,
-    Icons.directions_bus,
-    Icons.movie,
-    Icons.home,
-    Icons.work,
-    Icons.store,
-    Icons.pets,
-    Icons.favorite,
-    Icons.school,
-    Icons.flight,
-    Icons.savings,
-    Icons.more_horiz,
-  ];
+  void _toast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: AppTheme.body(13, color: Colors.white)),
+      ),
+    );
+  }
 
+  /// Opens the add / edit sheet. Pass a category to edit it.
   Future<void> showCategoryDialog({CategoryItem? category}) async {
-    final controller = TextEditingController(text: category?.name ?? '');
-    IconData selectedIcon = category?.icon ?? Icons.category;
-
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.background,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: Text(
-                category == null ? 'Add category' : 'Edit category',
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Category name'),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      maxLength: 30,
-                      decoration: InputDecoration(
-                        hintText: 'Enter category name',
-                        filled: true,
-                        fillColor: Colors.white,
-                        counterText: '',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppColors.border),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Choose an icon'),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: categoryIcons.map((icon) {
-                        final selected = icon == selectedIcon;
-
-                        return InkWell(
-                          onTap: () {
-                            setDialogState(() {
-                              selectedIcon = icon;
-                            });
-                          },
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AppColors.terracotta.withValues(alpha: 0.2)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: selected
-                                    ? AppColors.terracotta
-                                    : AppColors.border,
-                              ),
-                            ),
-                            child: Icon(
-                              icon,
-                              color: selected
-                                  ? AppColors.terracotta
-                                  : AppColors.text,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: AppColors.border),
-                  ),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.terracotta,
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: () {
-                    final name = controller.text.trim();
-
-                    if (name.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please enter a category name.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final duplicate = categories.any(
-                      (item) =>
-                          item != category &&
-                          item.name.toLowerCase() == name.toLowerCase(),
-                    );
-
-                    if (duplicate) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('This category already exists.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(dialogContext, {
-                      'name': name,
-                      'icon': selectedIcon,
-                    });
-                  },
-                  child: Text(category == null ? 'Add' : 'Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    final result = await showCategoryFormSheet(
+      context,
+      initialName: category?.name,
+      initialIcon: category?.icon,
+      isDuplicate: (name) => categories.any(
+        (item) =>
+            item != category && item.name.toLowerCase() == name.toLowerCase(),
+      ),
     );
 
-    if (!mounted || result == null) {
-      controller.dispose();
-      return;
-    }
+    if (!mounted || result == null) return;
 
     setState(() {
       if (category == null) {
         categories.add(
           CategoryItem(
-            name: result['name'] as String,
+            name: result.name,
             transactions: '0 transactions',
-            icon: result['icon'] as IconData,
+            icon: result.icon,
           ),
         );
       } else {
-        category.name = result['name'] as String;
-        category.icon = result['icon'] as IconData;
+        category.name = result.name;
+        category.icon = result.icon;
       }
     });
 
-    controller.dispose();
+    _toast(category == null ? 'Category added' : 'Category updated');
   }
 
   Future<void> deleteCategory(CategoryItem category) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.background,
-        title: const Text('Delete category?'),
-        content: Text('Are you sure you want to delete "${category.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final confirm = await showConfirmDeleteDialog(
+      context,
+      title: 'Delete this category?',
+      message: 'Are you sure you want to delete "${category.name}"?\n'
+          "This can't be undone.",
     );
 
-    if (confirm == true && mounted) {
+    if (confirm && mounted) {
       setState(() {
         categories.remove(category);
       });
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Category deleted.')));
+      _toast('Category deleted');
     }
   }
 
@@ -301,19 +144,21 @@ class _CategoryScreenState extends State<CategoryScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Header
-            // Header
-            SizedBox(
-              height: 66,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: RoundBackButton(),
-                  ),
-                  Text('Categories', style: AppTheme.heading(17)),
-                ],
+            // Header (same position as the other screens)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: SizedBox(
+                height: 40,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: RoundBackButton(),
+                    ),
+                    Text('Categories', style: AppTheme.heading(17)),
+                  ],
+                ),
               ),
             ),
 
@@ -420,23 +265,6 @@ class _CategoryScreenState extends State<CategoryScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _headerButton({required IconData icon, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: 30,
-        height: 30,
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFFDFA),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Icon(icon, size: 20, color: AppColors.text),
       ),
     );
   }

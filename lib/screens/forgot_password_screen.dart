@@ -25,6 +25,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   late final TextEditingController _emailController;
   final _auth = AuthService();
   bool _loading = false;
+  bool _linkSent = false; // becomes true after the link is sent
 
   @override
   void initState() {
@@ -50,6 +51,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     try {
       await _auth.sendPasswordReset(email: email);
       if (!mounted) return;
+      setState(() => _linkSent = true);
       _showMessage('Reset link sent to $email');
     } catch (e) {
       if (!mounted) return;
@@ -161,10 +163,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: InfoBanner(text: 'Link expires in 15 minutes!'),
-            ),
+            if (_linkSent)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: InfoBanner(text: 'Link expires in 15 minutes!'),
+              ),
           ],
         ),
       ),

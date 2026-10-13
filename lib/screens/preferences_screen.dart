@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../services/preferences_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import 'budgeting_style_sheet.dart';
-import 'currency_sheet.dart';
+import '../widgets/budgeting_style_sheet.dart';
+import '../widgets/currency_sheet.dart';
 import '../widgets/round_back_button.dart';
 import '../widgets/user_role_dialog.dart';
 

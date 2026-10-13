@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/primary_button.dart';
+import 'primary_button.dart';
 
 class _Currency {
   final String code, name, symbol;

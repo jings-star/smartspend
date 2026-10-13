@@ -3,7 +3,7 @@ import '../models/transaction_item.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
-import 'split_sheet.dart';
+import '../widgets/split_sheet.dart';
 
 const _months = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
