@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import 'transactions_screen.dart';
-import 'profile_screen.dart'; // TODO: use your real account page file
+import 'profile_screen.dart'; 
+import 'savings_goals_screen.dart'; 
+import 'alerts_screen.dart';
+import 'dashboard_screen.dart';
 
 /// Owns the bottom navigation bar and switches between the main pages.
 class AppShell extends StatefulWidget {
@@ -17,9 +20,9 @@ class _AppShellState extends State<AppShell> {
   // Order must match the bottom nav items below.
   final _pages = const <Widget>[
     TransactionsScreen(), // Home
-    Placeholder(), // Saving
-    Placeholder(), // Dashboard
-    Placeholder(), // Alerts
+    SavingsGoalsScreen(), // Saving
+    DashboardScreen(), // Dashboard
+    AlertsScreen(), // Alerts
     ProfileScreen(), // Account  <- change to your account page class name
   ];
 

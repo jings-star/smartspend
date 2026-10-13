@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:smartspend/screens/transactions_screen.dart';
 
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
@@ -11,7 +12,6 @@ import '../widgets/or_divider.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/round_back_button.dart';
 import 'forgot_password_screen.dart';
-import 'home_placeholder.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -51,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const HomePlaceholder()),
+        MaterialPageRoute(builder: (_) => const TransactionsScreen()),
       );
     } catch (e) {
       if (!mounted) return;
