@@ -17,8 +17,9 @@ extension BudgetPeriodX on BudgetPeriod {
 
 enum BudgetStatus { safe, warning, over }
 
-/// The "Alert at 90%" threshold.
-const budgetAlertThreshold = 0.9;
+/// Allowed "alert at" percentages, shown as chips in the budget form.
+const budgetAlertThresholds = [50, 70, 80, 90];
+const defaultBudgetAlertThreshold = 90;
 
 class Budget {
   final String id;
@@ -27,6 +28,9 @@ class Budget {
   final BudgetPeriod period;
   final double spent;
   final bool alertEnabled;
+
+  /// Percent (50, 70, 80, 90) at which the budget turns to "warning".
+  final int alertThreshold;
 
   /// Optional amounts for weeks 1-4 of the month (set by the Weekly split page).
   final List<double>? weeklySplit;
@@ -38,6 +42,7 @@ class Budget {
     this.period = BudgetPeriod.monthly,
     this.spent = 0,
     this.alertEnabled = true,
+    this.alertThreshold = defaultBudgetAlertThreshold,
     this.weeklySplit,
   });
 
@@ -47,6 +52,7 @@ class Budget {
     BudgetPeriod? period,
     double? spent,
     bool? alertEnabled,
+    int? alertThreshold,
     List<double>? weeklySplit,
   }) {
     return Budget(
@@ -56,6 +62,7 @@ class Budget {
       period: period ?? this.period,
       spent: spent ?? this.spent,
       alertEnabled: alertEnabled ?? this.alertEnabled,
+      alertThreshold: alertThreshold ?? this.alertThreshold,
       weeklySplit: weeklySplit ?? this.weeklySplit,
     );
   }
@@ -66,7 +73,11 @@ class Budget {
 
   BudgetStatus get status {
     if (progress > 1) return BudgetStatus.over;
-    if (progress >= budgetAlertThreshold) return BudgetStatus.warning;
+    // Remove `alertEnabled &&` if you want the warning colour even when
+    // alerts are switched off.
+    if (alertEnabled && progress >= alertThreshold / 100) {
+      return BudgetStatus.warning;
+    }
     return BudgetStatus.safe;
   }
 }

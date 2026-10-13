@@ -252,7 +252,8 @@ class _WeeklySplitScreenState extends State<WeeklySplitScreen> {
         ? widget.spentByWeek![i]
         : 0.0;
     final progress = allocated <= 0 ? 0.0 : spent / allocated;
-    final hot = progress >= budgetAlertThreshold;
+    final hot = widget.budget.alertEnabled &&
+    progress >= widget.budget.alertThreshold / 100;
     final barColor = hot ? AppColors.coral : AppColors.terracotta;
     final trackColor = hot ? AppColors.coralTint : AppColors.backgroundDeep;
     final balance = allocated - spent;

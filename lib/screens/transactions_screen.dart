@@ -11,7 +11,7 @@ import 'transaction_details_screen.dart';
 import 'summary_card.dart';
 import 'transaction_group_card.dart';
 import 'quick_add_screen.dart';
-import 'budget_screen.dart';
+import 'notifications_screen.dart';
 
 const _monthNames = [
   'January',
@@ -203,14 +203,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   ),
                   const SizedBox(width: 8),
                   _roundIcon(
-                    Icons.calendar_month_outlined,
+                    Icons.notifications_none,
                     () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const BudgetScreen()),
+                      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  _roundIcon(Icons.calculate_outlined, () {}, filled: true),
                 ],
               ),
             ),

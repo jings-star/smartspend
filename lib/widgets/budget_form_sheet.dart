@@ -49,6 +49,7 @@ class _BudgetFormState extends State<_BudgetForm> {
   late String _category;
   late BudgetPeriod _period;
   late bool _alert;
+  late int _alertThreshold;
 
   bool get _isEdit => widget.existing != null;
 
@@ -60,6 +61,7 @@ class _BudgetFormState extends State<_BudgetForm> {
     _category = e?.category ?? _categories.first;
     _period = e?.period ?? BudgetPeriod.monthly;
     _alert = e?.alertEnabled ?? true;
+    _alertThreshold = e?.alertThreshold ?? defaultBudgetAlertThreshold;
     _amount = TextEditingController(
         text: e == null ? '' : e.amount.toStringAsFixed(2));
     _spent = TextEditingController(
@@ -86,6 +88,8 @@ class _BudgetFormState extends State<_BudgetForm> {
       period: _period,
       spent: _spent.text.trim().isEmpty ? 0 : _parse(_spent.text)!,
       alertEnabled: _alert,
+      alertThreshold: _alertThreshold,
+      weeklySplit: widget.existing?.weeklySplit,
     );
 
     final messenger = ScaffoldMessenger.of(context);
@@ -250,11 +254,34 @@ class _BudgetFormState extends State<_BudgetForm> {
                     ),
                     const SizedBox(height: 16),
                     FormSwitchRow(
-                      title: 'Alert at 90%',
+                      title: 'Alert at $_alertThreshold%',
                       subtitle: "Get notified when you're close to the limit",
                       value: _alert,
                       onChanged: (v) => setState(() => _alert = v),
                     ),
+                    if (_alert) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          for (int i = 0;
+                              i < budgetAlertThresholds.length;
+                              i++) ...[
+                            Expanded(
+                              child: _ThresholdChip(
+                                percent: budgetAlertThresholds[i],
+                                selected: _alertThreshold ==
+                                    budgetAlertThresholds[i],
+                                onTap: () => setState(() =>
+                                    _alertThreshold =
+                                        budgetAlertThresholds[i]),
+                              ),
+                            ),
+                            if (i != budgetAlertThresholds.length - 1)
+                              const SizedBox(width: 8),
+                          ],
+                        ],
+                      ),
+                    ],
                     if (_isEdit &&
                         widget.existing!.period == BudgetPeriod.monthly) ...[
                       const SizedBox(height: 4),
@@ -316,6 +343,44 @@ class _BudgetFormState extends State<_BudgetForm> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ThresholdChip extends StatelessWidget {
+  final int percent;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ThresholdChip({
+    required this.percent,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.terracotta : AppColors.paper,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.terracotta : AppColors.border,
+          ),
+        ),
+        child: Text(
+          '$percent%',
+          style: AppTheme.body(
+            12.5,
+            weight: FontWeight.w800,
+            color: selected ? Colors.white : AppColors.text,
+          ),
+        ),
       ),
     );
   }

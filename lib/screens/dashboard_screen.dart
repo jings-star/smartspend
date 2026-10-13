@@ -13,8 +13,6 @@ const _purple = Color(0xFF7B5EA7);
 const _lavender = Color(0xFFEAE4F5);
 
 class DashboardScreen extends StatefulWidget {
-  /// Pass your real transactions / goals. When omitted, sample data
-  /// (Apr - Jul 2026) is used so the screen matches the design.
   const DashboardScreen({super.key, this.transactions, this.goals});
 
   final List<TransactionItem>? transactions;
@@ -27,16 +25,18 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   late final List<TransactionItem> _all =
       widget.transactions ?? buildDashboardSample();
+
   late final List<SavingsGoal> _goals = widget.goals ?? sampleGoals;
   late final List<DateTime> _months = monthsIn(_all);
-  late DateTime _month = _months.isEmpty ? monthOf(DateTime.now()) : _months.last;
+
+  late DateTime _month = _months.isEmpty
+      ? monthOf(DateTime.now())
+      : _months.last;
 
   int get _index => _months.indexWhere((m) => sameMonth(m, _month));
 
-  /// The 4 most recent months shown in the trend chart.
-  List<DateTime> get _chartMonths => _months.length <= 4
-      ? _months
-      : _months.sublist(_months.length - 4);
+  List<DateTime> get _chartMonths =>
+      _months.length <= 4 ? _months : _months.sublist(_months.length - 4);
 
   void _shift(int delta) {
     final i = _index + delta;
@@ -64,96 +64,114 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 14),
             _monthSelector(),
             const SizedBox(height: 14),
+
             if (_all.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 60),
                 child: Center(
-                  child: Text('No data yet. Add transactions to see your dashboard.',
-                      textAlign: TextAlign.center,
-                      style: AppTheme.body(13, color: AppColors.textMuted)),
+                  child: Text(
+                    'No data yet. Add transactions to see your dashboard.',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.body(
+                      13,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
                 ),
               )
             else ...[
               _healthCard(stats),
               const SizedBox(height: 12),
+
+              // Smart Recommendation — no AI button
+              _recommendationCard(),
+              const SizedBox(height: 12),
+
               _insightCard(stats),
               const SizedBox(height: 12),
-              _amountCard('INCOME', fmtMoney(stats.income), AppColors.sage),
-              const SizedBox(height: 10),
+
               _amountCard(
-                  'EXPENSES', fmtMoney(stats.expense), AppColors.terracottaDark),
+                'INCOME',
+                fmtMoney(stats.income),
+                AppColors.sage,
+              ),
               const SizedBox(height: 10),
+
+              _amountCard(
+                'EXPENSES',
+                fmtMoney(stats.expense),
+                AppColors.terracottaDark,
+              ),
+              const SizedBox(height: 10),
+
               _balanceCard(stats),
               const SizedBox(height: 10),
+
               _projectedCard(stats),
               const SizedBox(height: 22),
+
               _sectionTitle('INCOME VS EXPENSES'),
               _hint('Tap the chart for a bigger weekly/monthly view'),
               const SizedBox(height: 8),
               const ChartLegend(),
               const SizedBox(height: 10),
+
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => showIncomeExpenseSheet(context,
-                    all: _all, months: _chartMonths, selected: _month),
+                onTap: () => showIncomeExpenseSheet(
+                  context,
+                  all: _all,
+                  months: _chartMonths,
+                  selected: _month,
+                ),
                 child: IncomeExpenseChart(
                   labels: [for (final m in _chartMonths) monthShort(m)],
                   data: monthlyTotals(_all, _chartMonths),
                 ),
               ),
+
               const SizedBox(height: 22),
               _sectionTitle('SPENDING SHARE BY CATEGORY'),
               _hint('Tap the chart for a bigger weekly/monthly view'),
               const SizedBox(height: 12),
+
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => showCategoryPieSheet(context,
-                    all: _all, month: _month, stats: stats),
-                child: Row(children: [
-                  PieChartView(groups: groups, size: 96),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    child: Column(children: [
-                      for (final g in groups) _legendRow(g, stats),
-                    ]),
-                  ),
-                ]),
+                onTap: () => showCategoryPieSheet(
+                  context,
+                  all: _all,
+                  month: _month,
+                  stats: stats,
+                ),
+                child: Row(
+                  children: [
+                    PieChartView(groups: groups, size: 96),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          for (final g in groups) _legendRow(g, stats),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+
               const SizedBox(height: 22),
               _sectionTitle('SPENDING BY CATEGORY'),
               const SizedBox(height: 10),
+
               for (final e in stats.categories)
                 _categoryRow(e, stats.categories.first.value),
             ],
           ],
         ),
       ),
-      // If your app shell already owns the bottom nav, remove this and
-      // show this screen as a tab instead.
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 2,
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: AppColors.background,
-        selectedItemColor: AppColors.terracotta,
-        unselectedItemColor: AppColors.textFaint,
-        selectedFontSize: 11,
-        unselectedFontSize: 11,
-        elevation: 0,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.savings_outlined), label: 'Goals'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.pie_chart_outline), label: 'Dashboard'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_none), label: 'Alerts'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: 'Account'),
-        ],
-      ),
     );
   }
 
-  // ---------- header / month ----------
+  // ---------- Header / month ----------
 
   Widget _header(PeriodStats stats) {
     return Row(
@@ -165,8 +183,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Text('Dashboard', style: AppTheme.heading(28)),
               const SizedBox(height: 4),
-              Text('Your financial overview at a glance.',
-                  style: AppTheme.body(12, color: AppColors.textMuted)),
+              Text(
+                'Your financial overview at a glance.',
+                style: AppTheme.body(
+                  12,
+                  color: AppColors.textMuted,
+                ),
+              ),
             ],
           ),
         ),
@@ -174,22 +197,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Icons.smart_toy_outlined,
           _purple,
           _lavender,
-          () => showDashboardAssistantSheet(context,
-              stats: stats, month: _month, goals: _goals),
+          () => showDashboardAssistantSheet(
+            context,
+            stats: stats,
+            month: _month,
+            goals: _goals,
+          ),
         ),
         const SizedBox(width: 10),
         _roundBtn(
           Icons.description,
           AppColors.text,
           Colors.white,
-          () => showExportReportSheet(context,
-              all: _all, months: _months, month: _month, goals: _goals),
+          () => showExportReportSheet(
+            context,
+            all: _all,
+            months: _months,
+            month: _month,
+            goals: _goals,
+          ),
         ),
       ],
     );
   }
 
-  Widget _roundBtn(IconData icon, Color fg, Color bg, VoidCallback onTap) {
+  Widget _roundBtn(
+    IconData icon,
+    Color fg,
+    Color bg,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -208,6 +245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _monthSelector() {
     final canPrev = _index > 0;
     final canNext = _index >= 0 && _index < _months.length - 1;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -215,12 +253,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(width: 22),
         GestureDetector(
           onTap: _months.isEmpty ? null : _chooseMonth,
-          child: Row(children: [
-            Text(monthYear(_month),
-                style: AppTheme.body(15, weight: FontWeight.w800)),
-            const SizedBox(width: 4),
-            const Icon(Icons.expand_more, size: 18, color: AppColors.textMuted),
-          ]),
+          child: Row(
+            children: [
+              Text(
+                monthYear(_month),
+                style: AppTheme.body(15, weight: FontWeight.w800),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.expand_more,
+                size: 18,
+                color: AppColors.textMuted,
+              ),
+            ],
+          ),
         ),
         const SizedBox(width: 22),
         _arrow(Icons.chevron_right, canNext ? () => _shift(1) : null),
@@ -239,18 +285,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           shape: BoxShape.circle,
           border: Border.all(color: AppColors.border),
         ),
-        child: Icon(icon,
-            size: 18,
-            color: onTap == null ? AppColors.textFaint : AppColors.text),
+        child: Icon(
+          icon,
+          size: 18,
+          color: onTap == null ? AppColors.textFaint : AppColors.text,
+        ),
       ),
     );
   }
 
-  // ---------- cards ----------
+  // ---------- Cards ----------
 
   Widget _healthCard(PeriodStats s) {
     final prev = s.prevScore;
     final diff = prev == null ? null : s.healthScore - prev;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -258,36 +307,98 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE0D2BD)),
       ),
-      child: Row(children: [
-        HealthRing(score: s.healthScore, size: 54),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('FINANCIAL HEALTH',
-                  style: AppTheme.body(10,
-                      weight: FontWeight.w800, color: AppColors.textMuted)),
-              const SizedBox(height: 2),
-              Text(s.healthLabel,
-                  style: AppTheme.body(16, weight: FontWeight.w800)),
-              if (diff != null) ...[
+      child: Row(
+        children: [
+          HealthRing(score: s.healthScore, size: 54),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'FINANCIAL HEALTH',
+                  style: AppTheme.body(
+                    10,
+                    weight: FontWeight.w800,
+                    color: AppColors.textMuted,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
-                  diff >= 0
-                      ? '↑ $diff points from last month'
-                      : '↓ ${diff.abs()} points from last month',
-                  style: AppTheme.body(11,
+                  s.healthLabel,
+                  style: AppTheme.body(16, weight: FontWeight.w800),
+                ),
+                if (diff != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    diff >= 0
+                        ? '↑ $diff points from last month'
+                        : '↓ ${diff.abs()} points from last month',
+                    style: AppTheme.body(
+                      11,
                       weight: FontWeight.w700,
                       color: diff >= 0
                           ? AppColors.sage
-                          : AppColors.terracottaDark),
-                ),
+                          : AppColors.terracottaDark,
+                    ),
+                  ),
+                ],
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------- Smart Recommendation ----------
+
+  Widget _recommendationCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5E9CC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE8D6A8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.star,
+                size: 13,
+                color: AppColors.gold,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'SMART RECOMMENDATION',
+                style: AppTheme.body(
+                  10,
+                  weight: FontWeight.w800,
+                  color: AppColors.gold,
+                ),
+              ),
             ],
           ),
-        ),
-      ]),
+          const SizedBox(height: 10),
+          Text(
+            '🍜  Cut back on Food & Dining',
+            style: AppTheme.body(14, weight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "You've spent more on Food this month than usual. "
+            'Consider setting a lower dining budget to control '
+            'your spending.',
+            style: AppTheme.body(
+              12,
+              color: AppColors.textMuted,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -295,26 +406,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final top = s.categories.isEmpty ? null : s.categories.first;
     final change = s.expenseChangePct;
     final base = AppTheme.body(11, color: AppColors.text);
-
     final spans = <InlineSpan>[];
+
     if (top == null) {
-      spans.add(TextSpan(text: 'No spending recorded this month.', style: base));
+      spans.add(
+        TextSpan(
+          text: 'No spending recorded this month.',
+          style: base,
+        ),
+      );
     } else {
       spans.addAll([
         TextSpan(
-            text: top.key,
-            style: AppTheme.body(11, weight: FontWeight.w800, color: _purple)),
+          text: top.key,
+          style: AppTheme.body(
+            11,
+            weight: FontWeight.w800,
+            color: _purple,
+          ),
+        ),
         TextSpan(
-            text:
-                ' was your biggest expense this month at ${fmtMoney(top.value)} '
-                '(${(top.value / s.totalExpenseForPct * 100).round()}% of spending).',
-            style: base),
+          text:
+              ' was your biggest expense this month at ${fmtMoney(top.value)} '
+              '(${(top.value / s.totalExpenseForPct * 100).round()}% of spending).',
+          style: base,
+        ),
       ]);
+
       if (change != null) {
-        spans.add(TextSpan(
+        spans.add(
+          TextSpan(
             text:
-                ' Overall spending is ${change >= 0 ? 'up' : 'down'} ${change.abs().round()}% vs last month.',
-            style: base));
+                ' Overall spending is ${change >= 0 ? 'up' : 'down'} '
+                '${change.abs().round()}% vs last month.',
+            style: base,
+          ),
+        );
       }
     }
 
@@ -342,9 +469,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: AppTheme.body(10,
-                  weight: FontWeight.w800, color: AppColors.textMuted)),
+          Text(
+            label,
+            style: AppTheme.body(
+              10,
+              weight: FontWeight.w800,
+              color: AppColors.textMuted,
+            ),
+          ),
           const SizedBox(height: 2),
           Text(amount, style: AppTheme.heading(22, color: color)),
         ],
@@ -363,13 +495,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('REMAINING BALANCE',
-              style: AppTheme.body(10,
-                  weight: FontWeight.w800,
-                  color: Colors.white.withOpacity(0.85))),
+          Text(
+            'REMAINING BALANCE',
+            style: AppTheme.body(
+              10,
+              weight: FontWeight.w800,
+              color: Colors.white.withOpacity(0.85),
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(fmtMoney(s.balance),
-              style: AppTheme.heading(26, color: Colors.white)),
+          Text(
+            fmtMoney(s.balance),
+            style: AppTheme.heading(26, color: Colors.white),
+          ),
         ],
       ),
     );
@@ -384,104 +522,159 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('PROJECTED END-OF-MONTH BALANCE',
-                  style: AppTheme.body(10,
-                      weight: FontWeight.w800, color: AppColors.textMuted)),
-              const SizedBox(height: 2),
-              Text(fmtMoney(s.projectedBalance.roundToDouble()),
-                  style: AppTheme.heading(20)),
-            ],
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'PROJECTED END-OF-MONTH BALANCE',
+                  style: AppTheme.body(
+                    10,
+                    weight: FontWeight.w800,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  fmtMoney(s.projectedBalance.roundToDouble()),
+                  style: AppTheme.heading(20),
+                ),
+              ],
+            ),
           ),
-        ),
-        const Icon(Icons.show_chart, color: AppColors.textFaint),
-      ]),
+          const Icon(Icons.show_chart, color: AppColors.textFaint),
+        ],
+      ),
     );
   }
 
-  // ---------- sections ----------
+  // ---------- Sections ----------
 
-  Widget _sectionTitle(String s) => Text(s,
-      style: AppTheme.body(11,
-          weight: FontWeight.w800, color: AppColors.textMuted));
+  Widget _sectionTitle(String s) => Text(
+        s,
+        style: AppTheme.body(
+          11,
+          weight: FontWeight.w800,
+          color: AppColors.textMuted,
+        ),
+      );
 
   Widget _hint(String s) => Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Center(
-          child: Text(s, style: AppTheme.body(10, color: AppColors.textFaint)),
+          child: Text(
+            s,
+            style: AppTheme.body(10, color: AppColors.textFaint),
+          ),
         ),
       );
 
   Widget _legendRow(PieGroup g, PeriodStats s) {
-    final pct = (g.amount / s.totalExpenseForPct * 100).round();
+    final pct = s.totalExpenseForPct <= 0
+        ? 0
+        : (g.amount / s.totalExpenseForPct * 100).round();
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        Container(
+      child: Row(
+        children: [
+          Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(color: g.color, shape: BoxShape.circle)),
-        const SizedBox(width: 8),
-        Text(catEmoji(g.label), style: const TextStyle(fontSize: 11)),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(g.label, style: AppTheme.body(11, weight: FontWeight.w600)),
-        ),
-        Text('$pct%', style: AppTheme.body(11, weight: FontWeight.w700)),
-      ]),
+            decoration: BoxDecoration(
+              color: g.color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(catEmoji(g.label), style: const TextStyle(fontSize: 11)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              g.label,
+              style: AppTheme.body(11, weight: FontWeight.w600),
+            ),
+          ),
+          Text('$pct%', style: AppTheme.body(11, weight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 
   Widget _categoryRow(MapEntry<String, double> e, double max) {
     final color = catColor(e.key);
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () => showCategoryDetailSheet(context,
-          all: _all, month: _month, category: e.key, total: e.value),
+      onTap: () => showCategoryDetailSheet(
+        context,
+        all: _all,
+        month: _month,
+        category: e.key,
+        total: e.value,
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(children: [
-          Container(
-            width: 36,
-            height: 36,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(catEmoji(e.key), style: const TextStyle(fontSize: 16)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(children: [
-              Row(children: [
-                Expanded(
-                  child: Text(e.key,
-                      style: AppTheme.body(12, weight: FontWeight.w800)),
-                ),
-                Text(fmtMoney(e.value),
-                    style: AppTheme.body(11,
-                        weight: FontWeight.w700, color: AppColors.textMuted)),
-              ]),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: max <= 0 ? 0 : e.value / max,
-                  minHeight: 6,
-                  backgroundColor: AppColors.border,
-                  valueColor: AlwaysStoppedAnimation(color),
-                ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
               ),
-            ]),
-          ),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
-        ]),
+              child: Text(
+                catEmoji(e.key),
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          e.key,
+                          style: AppTheme.body(12, weight: FontWeight.w800),
+                        ),
+                      ),
+                      Text(
+                        fmtMoney(e.value),
+                        style: AppTheme.body(
+                          11,
+                          weight: FontWeight.w700,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: max <= 0 ? 0 : e.value / max,
+                      minHeight: 6,
+                      backgroundColor: AppColors.border,
+                      valueColor: AlwaysStoppedAnimation(color),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: AppColors.textFaint,
+            ),
+          ],
+        ),
       ),
     );
   }
