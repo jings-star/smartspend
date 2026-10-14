@@ -1,15 +1,20 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/guest_mode.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/logout_sheet.dart';
 import '../widgets/currency_sheet.dart';
-import 'edit_profile_screen.dart';
-import 'preferences_screen.dart';
+import '../widgets/guest_banner.dart';
+import '../widgets/logout_sheet.dart';
 import 'category_screen.dart';
-import 'app_shell.dart';
+import 'edit_profile_screen.dart';
 import 'payment_methods_screen.dart';
+import 'preferences_screen.dart';
 import 'recurring_screen.dart';
+import 'login_screen.dart';
+import '../services/app_entry_preferences.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -20,20 +25,128 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String _currency = 'MYR'; // TODO: load/save with the user's preferences
+  String _nickname = 'Guest';
+
+  bool get _isGuest => FirebaseAuth.instance.currentUser == null;
+
+  // TODO: replace with real stats.
+  static const _daysTracking = 36;
+  static const _logged = 34;
+  static const _thisMonth = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _nickname = 'Guest');
+      return;
+    }
+    String name = user.displayName ?? user.email?.split('@').first ?? 'User';
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final saved = doc.data()?['nickname'] as String?;
+      if (saved != null && saved.trim().isNotEmpty) name = saved;
+    } catch (_) {
+      // offline etc.: keep the fallback name
+    }
+    if (mounted) setState(() => _nickname = name);
+  }
 
   Future<void> _pickCurrency() async {
     final picked = await showCurrencySheet(context, selected: _currency);
     if (picked != null && mounted) setState(() => _currency = picked);
   }
 
-  // TODO: replace with real user data.
-  static const _nickname = 'Janice';
-  static const _daysTracking = 36;
-  static const _logged = 34;
-  static const _thisMonth = 5;
+  /// Guests cannot use account features: send them to log in.
+  void _askToLogin() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.paper,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Text('Log in required', style: AppTheme.heading(20)),
+        content: Text(
+          'Log in or create an account to use this feature and save your data.',
+          style: AppTheme.body(13, color: AppColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Not now',
+              style: AppTheme.body(13, weight: FontWeight.w700),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              GuestMode.isGuest.value = false; // AuthGate shows login
+            },
+            child: Text(
+              'Log in',
+              style: AppTheme.body(
+                13,
+                weight: FontWeight.w700,
+                color: AppColors.terracotta,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+Future<void> _logout() async {
+  final confirmed = await showLogoutSheet(context);
+  if (!confirmed || !mounted) return;
+
+  await FirebaseAuth.instance.signOut();
+  GuestMode.isGuest.value = false;
+  await AppEntryPreferences.chooseAccount();
+
+  if (!mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(builder: (_) => const LoginScreen()),
+    (route) => false, // clear the whole stack so Back can't return to the app
+  );
+}
+
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  Future<void> _deleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      // Removes the profile document. If you store expenses etc. under
+      // users/{uid}/..., delete those too (or use a Cloud Function).
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .delete();
+      await user.delete();
+      GuestMode.isGuest.value = false;
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') {
+        _snack('Please log out and log in again, then retry deleting.');
+      } else {
+        _snack(e.message ?? 'Could not delete account.');
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final guest = _isGuest;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -42,8 +155,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             _TitleBar(),
             const SizedBox(height: 16),
+            if (guest) const GuestBanner(),
             _Header(
-              initial: _nickname[0],
+              initial: _nickname.isEmpty ? '?' : _nickname[0].toUpperCase(),
               currency: _currency,
               onCurrencyTap: _pickCurrency,
             ),
@@ -60,11 +174,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Edit profile',
                   icon: Icons.manage_accounts_outlined,
                   tint: AppColors.terracottaTint,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const EditProfileScreen()),
-                  ),
+                  onTap: () async {
+                    if (guest) return _askToLogin();
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const EditProfileScreen(),
+                      ),
+                    );
+                    _loadUser(); // refresh name after editing
+                  },
                 ),
                 _MenuItem(
                   title: 'Payment Method',
@@ -73,8 +192,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const PaymentMethodsScreen()),
-                  ), // TODO
+                      builder: (_) => const PaymentMethodsScreen(),
+                    ),
+                  ),
                 ),
                 _MenuItem(
                   title: 'Preferences',
@@ -83,7 +203,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const PreferencesScreen()),
+                      builder: (_) => const PreferencesScreen(),
+                    ),
                   ),
                 ),
                 _MenuItem(
@@ -92,8 +213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   tint: AppColors.goldTint,
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const RecurringScreen()),
+                    MaterialPageRoute(builder: (_) => const RecurringScreen()),
                   ),
                 ),
                 _MenuItem(
@@ -102,35 +222,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   tint: AppColors.coralTint,
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const CategoryScreen()),
+                    MaterialPageRoute(builder: (_) => const CategoryScreen()),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            _PillButton(
-              label: 'Log out',
-              icon: Icons.logout,
-              color: AppColors.text,
-              onTap: () async {
-                final confirmed = await showLogoutSheet(context);
-                if (confirmed && context.mounted) {
-                  // TODO: AuthService sign out, then go back to the login
-                  // screen, e.g.
-                  Navigator.pushAndRemoveUntil(context,
-                    MaterialPageRoute(builder: (_) => const AppShell()),
-                    (_) => false);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            _PillButton(
-              label: 'Delete account',
-              color: AppColors.coral,
-              onTap: () => _confirmDelete(context),
-            ),
-          ],
+            if (!guest) ...[
+              _PillButton(
+                label: 'Log out',
+                icon: Icons.logout,
+                color: AppColors.text,
+                onTap: _logout,
+              ),
+              const SizedBox(height: 12),
+              _PillButton(
+                label: 'Delete account',
+                color: AppColors.coral,
+                onTap: () => _confirmDelete(context),
+              ),
+            ],
+            ],
         ),
       ),
     );
@@ -150,16 +262,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: AppTheme.body(13, weight: FontWeight.w700)),
+            child: Text(
+              'Cancel',
+              style: AppTheme.body(13, weight: FontWeight.w700),
+            ),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              // TODO: call your delete-account service.
+              _deleteAccount();
             },
-            child: Text('Delete',
-                style: AppTheme.body(13,
-                    weight: FontWeight.w700, color: AppColors.coral)),
+            child: Text(
+              'Delete',
+              style: AppTheme.body(
+                13,
+                weight: FontWeight.w700,
+                color: AppColors.coral,
+              ),
+            ),
           ),
         ],
       ),
@@ -174,9 +294,7 @@ class _TitleBar extends StatelessWidget {
       height: 36,
       child: Stack(
         alignment: Alignment.center,
-        children: [
-          Text('My Profile', style: AppTheme.heading(17)),
-        ],
+        children: [Text('My Profile', style: AppTheme.heading(17))],
       ),
     );
   }
@@ -207,8 +325,10 @@ class _Header extends StatelessWidget {
                 color: AppColors.backgroundDeep,
                 shape: BoxShape.circle,
               ),
-              child: Text(initial,
-                  style: AppTheme.heading(20, color: AppColors.terracottaDark)),
+              child: Text(
+                initial,
+                style: AppTheme.heading(20, color: AppColors.terracottaDark),
+              ),
             ),
             Positioned(
               right: -2,
@@ -220,8 +340,7 @@ class _Header extends StatelessWidget {
                   color: AppColors.terracotta,
                   shape: BoxShape.circle,
                 ),
-                child:
-                    const Icon(Icons.edit, size: 12, color: Colors.white),
+                child: const Icon(Icons.edit, size: 12, color: Colors.white),
               ),
             ),
           ],
@@ -232,11 +351,17 @@ class _Header extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              const _Tag('Student', AppColors.terracottaTint,
-                  icon: Icons.school_outlined),
+              const _Tag(
+                'Student',
+                AppColors.terracottaTint,
+                icon: Icons.school_outlined,
+              ),
               _Tag(currency, AppColors.sageTint, onTap: onCurrencyTap),
-              const _Tag('Balanced Saver', AppColors.goldTint,
-                  icon: Icons.auto_awesome),
+              const _Tag(
+                'Balanced Saver',
+                AppColors.goldTint,
+                icon: Icons.auto_awesome,
+              ),
             ],
           ),
         ),
@@ -257,49 +382,51 @@ class _Tag extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 12, color: AppColors.terracottaDark),
-            const SizedBox(width: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 12, color: AppColors.terracottaDark),
+              const SizedBox(width: 4),
+            ],
+            Text(label, style: AppTheme.body(11, weight: FontWeight.w700)),
           ],
-          Text(label, style: AppTheme.body(11, weight: FontWeight.w700)),
-        ],
-      ),
+        ),
       ),
     );
   }
 }
 
 BoxDecoration _cardDecoration() => BoxDecoration(
-      color: AppColors.paper,
-      borderRadius: BorderRadius.circular(22),
-      border: Border.all(color: AppColors.border),
-    );
+  color: AppColors.paper,
+  borderRadius: BorderRadius.circular(22),
+  border: Border.all(color: AppColors.border),
+);
 
 class _StatsCard extends StatelessWidget {
   final int days, logged, thisMonth;
-  const _StatsCard(
-      {required this.days, required this.logged, required this.thisMonth});
+  const _StatsCard({
+    required this.days,
+    required this.logged,
+    required this.thisMonth,
+  });
 
   Widget _stat(IconData icon, int value, String label) => Expanded(
-        child: Column(
-          children: [
-            Icon(icon, size: 18, color: AppColors.textMuted),
-            const SizedBox(height: 8),
-            Text('$value', style: AppTheme.heading(20)),
-            const SizedBox(height: 2),
-            Text(label,
-                style: AppTheme.body(11, color: AppColors.textMuted)),
-          ],
-        ),
-      );
+    child: Column(
+      children: [
+        Icon(icon, size: 18, color: AppColors.textMuted),
+        const SizedBox(height: 8),
+        Text('$value', style: AppTheme.heading(20)),
+        const SizedBox(height: 2),
+        Text(label, style: AppTheme.body(11, color: AppColors.textMuted)),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -313,8 +440,7 @@ class _StatsCard extends StatelessWidget {
           divider,
           _stat(Icons.assignment_outlined, logged, 'Logged'),
           divider,
-          _stat(Icons.account_balance_wallet_outlined, thisMonth,
-              'This month'),
+          _stat(Icons.account_balance_wallet_outlined, thisMonth, 'This month'),
         ],
       ),
     );
@@ -360,16 +486,24 @@ class _MenuCard extends StatelessWidget {
                         color: items[i].tint,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(items[i].icon,
-                          size: 20, color: AppColors.text),
+                      child: Icon(
+                        items[i].icon,
+                        size: 20,
+                        color: AppColors.text,
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
-                      child: Text(items[i].title,
-                          style: AppTheme.body(13.5, weight: FontWeight.w700)),
+                      child: Text(
+                        items[i].title,
+                        style: AppTheme.body(13.5, weight: FontWeight.w700),
+                      ),
                     ),
-                    const Icon(Icons.chevron_right,
-                        size: 20, color: AppColors.textFaint),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: AppColors.textFaint,
+                    ),
                   ],
                 ),
               ),
@@ -415,9 +549,10 @@ class _PillButton extends StatelessWidget {
               Icon(icon, size: 18, color: color),
               const SizedBox(width: 8),
             ],
-            Text(label,
-                style: AppTheme.body(13.5,
-                    weight: FontWeight.w700, color: color)),
+            Text(
+              label,
+              style: AppTheme.body(13.5, weight: FontWeight.w700, color: color),
+            ),
           ],
         ),
       ),

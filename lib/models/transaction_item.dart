@@ -60,18 +60,4 @@ class TransactionItem {
   String get emoji => kCategoryEmoji[category] ?? '📦';
 }
 
-/// Replace with your real data source (Firestore / SQLite / API).
-final List<TransactionItem> sampleTransactions = [
-  TransactionItem(
-      id: '1', title: 'Village Grocer', category: 'Food', amount: 48,
-      type: TxType.expense, date: DateTime(2026, 8, 2), paymentMethod: 'E-wallet'),
-  TransactionItem(
-      id: '2', title: 'Part-time salary', category: 'Income', amount: 600,
-      type: TxType.income, date: DateTime(2026, 8, 1), paymentMethod: 'Bank transfer'),
-  TransactionItem(
-      id: '3', title: 'Watsons', category: 'Personal Care', amount: 26,
-      type: TxType.expense, date: DateTime(2026, 8, 1), paymentMethod: 'Card'),
-  TransactionItem(
-      id: '4', title: 'Petrol', category: 'Transport', amount: 12,
-      type: TxType.expense, date: DateTime(2026, 8, 1), paymentMethod: 'Cash'),
-];
+

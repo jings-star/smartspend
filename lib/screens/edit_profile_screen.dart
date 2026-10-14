@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -16,11 +18,10 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // TODO: load these from the real user.
-  final _nickname = TextEditingController(text: 'Janice');
-  final _email = TextEditingController(text: 'janice@gmail.com');
+  final _nickname = TextEditingController();
+  final _email = TextEditingController();
   final _phone = TextEditingController();
-  final _idController = TextEditingController(text: '2507775');
+  final _idController = TextEditingController();
 
   final _currentPw = TextEditingController();
   final _newPw = TextEditingController();
@@ -28,6 +29,47 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   bool _showPassword = false;
   bool _saving = false;
+  bool _loading = true;
+
+  User? get _user => FirebaseAuth.instance.currentUser;
+
+  /// Only email+password accounts can change email/password here.
+  /// (Google sign-in accounts manage these in their Google account.)
+  bool get _hasPassword =>
+      _user?.providerData.any((p) => p.providerId == 'password') ?? false;
+
+  DocumentReference<Map<String, dynamic>> get _doc =>
+      FirebaseFirestore.instance.collection('users').doc(_user!.uid);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final user = _user;
+    if (user == null) {
+      // Guests should never reach this screen, but be safe.
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    _email.text = user.email ?? '';
+    _nickname.text = user.displayName ?? '';
+    _idController.text = user.uid.substring(0, 7).toUpperCase();
+    try {
+      final data = (await _doc.get()).data();
+      if (data != null) {
+        _nickname.text = (data['nickname'] as String?) ?? _nickname.text;
+        _phone.text = (data['phone'] as String?) ?? '';
+        final studentId = data['studentId'] as String?;
+        if (studentId != null && studentId.isNotEmpty) {
+          _idController.text = studentId;
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
 
   @override
   void dispose() {
@@ -45,24 +87,73 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
+  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg, style: AppTheme.body(13, color: Colors.white))),
+      );
+
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    final user = _user;
+    if (user == null) return;
     setState(() => _saving = true);
 
-    // TODO: call your service to update nickname / email / phone, and if
-    // _showPassword && _newPw.text.isNotEmpty, change the password with
-    // _currentPw.text and _newPw.text.
-    await Future.delayed(const Duration(milliseconds: 400));
+    try {
+      // 1) Nickname + phone
+      final nickname = _nickname.text.trim();
+      await user.updateDisplayName(nickname);
+      await _doc.set({
+        'nickname': nickname,
+        'phone': _phone.text.trim(),
+      }, SetOptions(merge: true));
 
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Profile updated',
-            style: AppTheme.body(13, color: Colors.white)),
-      ),
-    );
-    Navigator.pop(context);
+      // 2) Password (needs the current password to re-verify)
+      if (_hasPassword && _showPassword && _newPw.text.isNotEmpty) {
+        final cred = EmailAuthProvider.credential(
+          email: user.email!,
+          password: _currentPw.text,
+        );
+        await user.reauthenticateWithCredential(cred);
+        await user.updatePassword(_newPw.text);
+      }
+
+      // 3) Email: Firebase sends a verification link to the NEW address;
+      //    the email only changes after they tap it.
+      final newEmail = _email.text.trim();
+      var emailNote = '';
+      if (_hasPassword && newEmail.isNotEmpty && newEmail != user.email) {
+        await user.verifyBeforeUpdateEmail(newEmail);
+        emailNote = ' Check $newEmail to confirm your new email.';
+      }
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _snack('Profile updated.$emailNote');
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          _snack('Current password is incorrect.');
+          break;
+        case 'requires-recent-login':
+          _snack('Please log out and log in again, then retry.');
+          break;
+        case 'weak-password':
+          _snack('New password is too weak.');
+          break;
+        case 'email-already-in-use':
+          _snack('That email is already in use.');
+          break;
+        default:
+          _snack(e.message ?? 'Something went wrong.');
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _snack('Could not save. Check your connection and try again.');
+    }
   }
 
   String? _validateCurrent(String? v) {
@@ -91,6 +182,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.terracotta),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -159,6 +258,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               _InlineField(
                 label: 'EMAIL',
                 controller: _email,
+                readOnly: !_hasPassword,
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 12),
@@ -169,83 +269,85 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 keyboardType: TextInputType.phone,
                 action: TextInputAction.done,
               ),
-              const SizedBox(height: 22),
-              const Divider(color: AppColors.border, height: 1),
-              const SizedBox(height: 10),
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => setState(() => _showPassword = !_showPassword),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: AppColors.coralTint,
-                          borderRadius: BorderRadius.circular(12),
+              if (_hasPassword) ...[
+                const SizedBox(height: 22),
+                const Divider(color: AppColors.border, height: 1),
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => setState(() => _showPassword = !_showPassword),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.coralTint,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.lock_outline,
+                              size: 20, color: AppColors.coral),
                         ),
-                        child: const Icon(Icons.lock_outline,
-                            size: 20, color: AppColors.coral),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Text('Change password',
-                            style:
-                                AppTheme.body(13.5, weight: FontWeight.w700)),
-                      ),
-                      AnimatedRotation(
-                        turns: _showPassword ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 200),
-                        child: const Icon(Icons.keyboard_arrow_down,
-                            size: 22, color: AppColors.textFaint),
-                      ),
-                    ],
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text('Change password',
+                              style: AppTheme.body(13.5,
+                                  weight: FontWeight.w700)),
+                        ),
+                        AnimatedRotation(
+                          turns: _showPassword ? 0.5 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: const Icon(Icons.keyboard_arrow_down,
+                              size: 22, color: AppColors.textFaint),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeInOut,
-                alignment: Alignment.topCenter,
-                child: _showPassword
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: 14),
-                        child: Column(
-                          children: [
-                            AppTextField(
-                              label: 'Current password',
-                              hint: 'Enter current password',
-                              icon: Icons.lock_outline,
-                              controller: _currentPw,
-                              isPassword: true,
-                              validator: _validateCurrent,
-                            ),
-                            const SizedBox(height: 16),
-                            AppTextField(
-                              label: 'New password',
-                              hint: 'At least 8 characters',
-                              icon: Icons.lock_outline,
-                              controller: _newPw,
-                              isPassword: true,
-                              validator: _validateNew,
-                            ),
-                            const SizedBox(height: 16),
-                            AppTextField(
-                              label: 'Confirm new password',
-                              hint: 'Repeat new password',
-                              icon: Icons.lock_outline,
-                              controller: _confirmPw,
-                              isPassword: true,
-                              textInputAction: TextInputAction.done,
-                              validator: _validateConfirm,
-                            ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox(width: double.infinity),
-              ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _showPassword
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Column(
+                            children: [
+                              AppTextField(
+                                label: 'Current password',
+                                hint: 'Enter current password',
+                                icon: Icons.lock_outline,
+                                controller: _currentPw,
+                                isPassword: true,
+                                validator: _validateCurrent,
+                              ),
+                              const SizedBox(height: 16),
+                              AppTextField(
+                                label: 'New password',
+                                hint: 'At least 8 characters',
+                                icon: Icons.lock_outline,
+                                controller: _newPw,
+                                isPassword: true,
+                                validator: _validateNew,
+                              ),
+                              const SizedBox(height: 16),
+                              AppTextField(
+                                label: 'Confirm new password',
+                                hint: 'Repeat new password',
+                                icon: Icons.lock_outline,
+                                controller: _confirmPw,
+                                isPassword: true,
+                                textInputAction: TextInputAction.done,
+                                validator: _validateConfirm,
+                              ),
+                            ],
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+              ],
               const SizedBox(height: 22),
               PrimaryButton(
                 label: 'Save Changes',

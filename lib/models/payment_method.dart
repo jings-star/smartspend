@@ -34,6 +34,48 @@ class PaymentMethod {
     this.monthlyLimit,
   });
 
+  // ------------------------------------------------------------------
+  // Firebase stores data as a "Map" (name -> value). These two functions
+  // translate between our PaymentMethod and that Map.
+  // ------------------------------------------------------------------
+
+  /// PaymentMethod  ->  Map  (to save in Firestore)
+  /// The id is NOT in the map, because it is the name of the document.
+  Map<String, dynamic> toMap() {
+    return {
+      'type': type.name,
+      'title': title,
+      'holderName': holderName,
+      'bankName': bankName,
+      'cardLast4': cardLast4,
+      'isDefault': isDefault,
+      'transactionCount': transactionCount,
+      'totalAmount': totalAmount,
+      'monthlyLimit': monthlyLimit,
+    };
+  }
+
+  /// Map  ->  PaymentMethod  (when we read from Firestore)
+  factory PaymentMethod.fromMap(String id, Map<String, dynamic> map) {
+    return PaymentMethod(
+      id: id,
+      type: PaymentType.values.firstWhere(
+        (t) => t.name == map['type'],
+        orElse: () => PaymentType.cash,
+      ),
+      title: map['title'] as String? ?? 'Payment method',
+      holderName: map['holderName'] as String?,
+      bankName: map['bankName'] as String?,
+      cardLast4: map['cardLast4'] as String?,
+      isDefault: map['isDefault'] as bool? ?? false,
+      transactionCount: (map['transactionCount'] as num?)?.toInt() ?? 0,
+      totalAmount: (map['totalAmount'] as num?)?.toDouble() ?? 0,
+      monthlyLimit: (map['monthlyLimit'] as num?)?.toDouble(),
+    );
+  }
+
+  // ------------------------------------------------------------------
+
   /// Bank transfers are money coming IN, so they show a "+" and are not
   /// counted in "Spend share by method".
   bool get isIncome => type == PaymentType.bank;

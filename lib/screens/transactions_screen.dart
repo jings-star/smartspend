@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/transaction_item.dart';
 import '../models/tx_filter.dart';
+import '../services/transaction_repository.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'add_transaction_sheet.dart';
@@ -12,6 +13,7 @@ import 'summary_card.dart';
 import 'transaction_group_card.dart';
 import 'quick_add_screen.dart';
 import 'notifications_screen.dart';
+import 'app_shell.dart';
 
 const _monthNames = [
   'January',
@@ -36,10 +38,13 @@ class TransactionsScreen extends StatefulWidget {
 }
 
 class _TransactionsScreenState extends State<TransactionsScreen> {
-  // TODO: replace with data from your service / database.
-  final List<TransactionItem> _all = [...sampleTransactions];
+  // All data comes from the repository:
+  //   guest  -> memory,   logged in -> Firestore (only that user's data).
+  final TransactionRepository _repo = TransactionRepository.instance;
 
-  DateTime _month = DateTime(2026, 8);
+  // Start on the current month (a new user has no data, so it must not be
+  // an old month).
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   TxFilter _filter = const TxFilter();
 
   String get _monthLabel => '${_monthNames[_month.month - 1]} ${_month.year}';
@@ -48,9 +53,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       setState(() => _month = DateTime(_month.year, _month.month + delta));
 
   List<TransactionItem> get _visible {
+    final all = _repo.items;
     final inMonth = _filter.hasDateRange
-        ? _all
-        : _all
+        ? all
+        : all
               .where(
                 (t) =>
                     t.date.year == _month.year && t.date.month == _month.month,
@@ -59,13 +65,25 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     return _filter.apply(inMonth);
   }
 
+  /// Saves in the background and shows a message if it fails.
+  void _save(Future<void> Function() action) {
+    action().catchError((Object error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save: $error')));
+    });
+  }
+
   Future<void> _onAdd() async {
     final mode = await showAddTransactionSheet(context);
     if (mode == null || !mounted) return;
     if (mode == AddMode.full) {
       final added = await Navigator.push<List<TransactionItem>>(
         context,
-        MaterialPageRoute(builder: (_) => AddTransactionScreen(existing: _all)),
+        MaterialPageRoute(
+          builder: (_) => AddTransactionScreen(existing: _repo.items),
+        ),
       );
       _addItems(added);
     } else {
@@ -80,10 +98,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   void _addItems(List<TransactionItem>? added) {
     if (added == null || added.isEmpty) return;
-    setState(() {
-      _all.addAll(added);
-      _month = DateTime(added.first.date.year, added.first.date.month);
-    });
+    setState(
+      () => _month = DateTime(added.first.date.year, added.first.date.month),
+    );
+    _save(() => _repo.addAll(added));
   }
 
   Future<void> _openDetails(TransactionItem t) async {
@@ -97,7 +115,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         await _openEdit(t);
         break;
       case TransactionDetailAction.delete:
-        setState(() => _all.removeWhere((x) => x.id == t.id));
+        _save(() => _repo.delete(t.id));
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Transaction deleted')));
@@ -149,23 +167,29 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
           ];
 
-    setState(() {
-      final i = _all.indexWhere((x) => x.id == t.id);
-      if (i == -1) return;
-      _all
-        ..removeAt(i)
-        ..insertAll(i, replacements);
-      _month = DateTime(r.date.year, r.date.month);
-    });
+    setState(() => _month = DateTime(r.date.year, r.date.month));
+    _save(() => _repo.replace(t.id, replacements));
   }
 
   Future<void> _openFilter() async {
-    final result = await showFilterSheet(context, initial: _filter, all: _all);
+    final result = await showFilterSheet(
+      context,
+      initial: _filter,
+      all: _repo.items,
+    );
     if (result != null) setState(() => _filter = result);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Redraw whenever the data changes (added, edited, deleted, user switched).
+    return ListenableBuilder(
+      listenable: _repo,
+      builder: (context, _) => _buildPage(context),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final items = _visible;
     final income = items
         .where((t) => t.type == TxType.income)

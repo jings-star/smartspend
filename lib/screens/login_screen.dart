@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:smartspend/screens/transactions_screen.dart';
+// import 'package:smartspend/screens/transactions_screen.dart';
 
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
@@ -49,10 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const TransactionsScreen()),
-      );
+      Navigator.popUntil(context, (route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
       _showMessage(e.toString());

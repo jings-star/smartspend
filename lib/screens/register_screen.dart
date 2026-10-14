@@ -10,7 +10,7 @@ import '../widgets/google_button.dart';
 import '../widgets/or_divider.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/round_back_button.dart';
-import 'home_placeholder.dart';
+// import 'transactions_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -53,11 +53,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       // Remove Login + Register from the stack, then show the home page.
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomePlaceholder()),
-        (route) => false,
-      );
+      Navigator.popUntil(context, (route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
       _showMessage(e.toString());

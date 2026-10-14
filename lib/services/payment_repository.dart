@@ -1,58 +1,63 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/payment_method.dart';
 import '../models/payment_transaction.dart';
 
-/// This keeps everything IN MEMORY, so it resets when the app restarts.
-/// Later, replace the inside of these functions with Firebase (Firestore).
-/// The screens will not need to change.
+/// Saves payment methods in Cloud Firestore (the "filing cabinet").
+///
+/// Where the data lives:   users / {your user id} / payment_methods / {id}
+/// So every user has their own drawer, and nobody sees anyone else's.
+///
+/// The screens did not change. They still use: methods, byId, add, update,
+/// delete, removeForUndo, restore. Only the inside of this file is new.
 class PaymentRepository extends ChangeNotifier {
-  PaymentRepository._();
+  PaymentRepository._() {
+    // Whenever someone logs in or out, start or stop listening to their data.
+    FirebaseAuth.instance.authStateChanges().listen(_onUserChanged);
+  }
   static final PaymentRepository instance = PaymentRepository._();
 
-  final List<PaymentMethod> _methods = [
-    const PaymentMethod(
-      id: '1',
-      type: PaymentType.ewallet,
-      title: 'E-wallet',
-      isDefault: true,
-      transactionCount: 38,
-      totalAmount: 612,
-      monthlyLimit: 800,
-    ),
-    const PaymentMethod(
-      id: '2',
-      type: PaymentType.cash,
-      title: 'Cash',
-      transactionCount: 14,
-      totalAmount: 208,
-    ),
-    const PaymentMethod(
-      id: '3',
-      type: PaymentType.card,
-      title: 'Card',
-      holderName: 'Janice',
-      bankName: 'Maybank',
-      cardLast4: '4821',
-      transactionCount: 9,
-      totalAmount: 540,
-      monthlyLimit: 500, // already over, so you can see the warning
-    ),
-    const PaymentMethod(
-      id: '4',
-      type: PaymentType.bank,
-      title: 'Bank transfer',
-      holderName: 'Janice',
-      bankName: 'Maybank',
-      transactionCount: 2,
-      totalAmount: 600,
-    ),
-  ];
+  /// The "table" name. It is typed ONLY here, so it is easy to rename.
+  static const String _collectionName = 'payment_methods';
 
-  final List<PaymentTransaction> _transactions = _sampleTransactions();
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  List<PaymentMethod> _methods = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _subscription;
+
+  /// The id of the person who is logged in right now.
+  String get _userId {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw StateError('Please log in first.');
+    return user.uid;
+  }
+
+  /// The drawer that belongs to one user.
+  CollectionReference<Map<String, dynamic>> _collectionFor(String uid) {
+    return _db.collection('users').doc(uid).collection(_collectionName);
+  }
+
+  /// The drawer of the person who is logged in right now.
+  CollectionReference<Map<String, dynamic>> get _collection =>
+      _collectionFor(_userId);
+
+  /// Everything we save for one payment method:
+  /// the fields from toMap(), plus the two keys from your database table.
+  Map<String, dynamic> _dataToSave(PaymentMethod method, bool isDefault) {
+    return {
+      ...method.toMap(),
+      'payMethodID': method.id, // PK in your table
+      'userID': _userId, // FK in your table (Users.userID)
+      'isDefault': isDefault,
+    };
+  }
 
   // ----------------------------------------------------------------
-  // READ
+  // READ  (live: the screen updates by itself when the data changes)
   // ----------------------------------------------------------------
 
   List<PaymentMethod> get methods => List.unmodifiable(_methods);
@@ -64,12 +69,30 @@ class PaymentRepository extends ChangeNotifier {
     return null;
   }
 
-  /// Newest first.
-  List<PaymentTransaction> transactionsFor(String methodId) {
-    return _transactions.where((t) => t.methodId == methodId).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+  void _onUserChanged(User? user) {
+    _subscription?.cancel();
+    _subscription = null;
+    _methods = [];
+    notifyListeners();
+
+    if (user == null) return; // logged out: nothing to listen to
+
+    // .snapshots() = "tell me now, and tell me again every time it changes".
+    _subscription = _collectionFor(user.uid).snapshots().listen(
+      (snapshot) {
+        _methods = snapshot.docs
+            .map((doc) => PaymentMethod.fromMap(doc.id, doc.data()))
+            .toList();
+        notifyListeners();
+      },
+      onError: (Object error) => debugPrint('Firestore read error: $error'),
+    );
   }
 
+  /// Transactions are not in Firebase yet (that is a later lesson).
+  List<PaymentTransaction> transactionsFor(String methodId) => const [];
+
+  /// Document ids made from the time, so they stay in the order we created them.
   String newId() => DateTime.now().microsecondsSinceEpoch.toString();
 
   // ----------------------------------------------------------------
@@ -77,11 +100,19 @@ class PaymentRepository extends ChangeNotifier {
   // ----------------------------------------------------------------
 
   Future<void> add(PaymentMethod method) async {
-    await _fakeDelay();
-    if (method.isDefault) _clearDefaults();
-    _methods.add(method);
-    _ensureOneDefault();
-    notifyListeners();
+    final others = _methods.where((m) => m.id != method.id).toList();
+    // The first method is always the default.
+    final isDefault = method.isDefault || others.isEmpty;
+
+    // A batch = several changes saved together, all or nothing.
+    final batch = _db.batch();
+    if (isDefault) {
+      for (final other in others.where((m) => m.isDefault)) {
+        batch.update(_collection.doc(other.id), {'isDefault': false});
+      }
+    }
+    batch.set(_collection.doc(method.id), _dataToSave(method, isDefault));
+    await batch.commit();
   }
 
   // ----------------------------------------------------------------
@@ -89,94 +120,71 @@ class PaymentRepository extends ChangeNotifier {
   // ----------------------------------------------------------------
 
   Future<void> update(PaymentMethod method) async {
-    await _fakeDelay();
-    final index = _methods.indexWhere((m) => m.id == method.id);
-    if (index == -1) return;
-    if (method.isDefault) _clearDefaults();
-    _methods[index] = method;
-    _ensureOneDefault();
-    notifyListeners();
+    final others = _methods.where((m) => m.id != method.id).toList();
+    final isDefault = method.isDefault || others.isEmpty;
+
+    final batch = _db.batch();
+    if (isDefault) {
+      for (final other in others.where((m) => m.isDefault)) {
+        batch.update(_collection.doc(other.id), {'isDefault': false});
+      }
+    } else if (!others.any((m) => m.isDefault)) {
+      // Nobody would be the default anymore, so pick the first one.
+      batch.update(_collection.doc(others.first.id), {'isDefault': true});
+    }
+    batch.set(_collection.doc(method.id), _dataToSave(method, isDefault));
+    await batch.commit();
   }
 
   // ----------------------------------------------------------------
   // DELETE
   // ----------------------------------------------------------------
 
-  /// Normal delete (used by the delete button in the edit form).
-  Future<void> delete(String id) async {
-    await _fakeDelay();
-    _methods.removeWhere((m) => m.id == id);
-    _ensureOneDefault();
-    notifyListeners();
+  /// Normal delete (used by the bin button in the edit form).
+  Future<void> delete(String id) {
+    final wasDefault = byId(id)?.isDefault ?? false;
+    return _deleteDocument(id, wasDefault);
   }
 
-  /// Removes it RIGHT AWAY (used by swipe-to-delete) and returns what was
-  /// removed, so it can be put back with [restore] if the user taps Undo.
+  /// Swipe-to-delete: disappears from the screen RIGHT AWAY, is deleted in
+  /// Firebase in the background, and returns what it removed for Undo.
   ({PaymentMethod method, int index})? removeForUndo(String id) {
     final index = _methods.indexWhere((m) => m.id == id);
     if (index == -1) return null;
+
     final method = _methods.removeAt(index);
-    _ensureOneDefault();
     notifyListeners();
+
+    unawaited(
+      _deleteDocument(method.id, method.isDefault).catchError(
+        (Object error) => debugPrint('Firestore delete error: $error'),
+      ),
+    );
     return (method: method, index: index);
   }
 
-  /// UNDO for [removeForUndo].
+  /// UNDO for [removeForUndo]: show it again and save it again.
   void restore(PaymentMethod method, int index) {
-    if (method.isDefault) _clearDefaults();
     final position = index > _methods.length ? _methods.length : index;
     _methods.insert(position, method);
-    _ensureOneDefault();
     notifyListeners();
+
+    unawaited(
+      add(method).catchError(
+        (Object error) => debugPrint('Firestore restore error: $error'),
+      ),
+    );
   }
 
-  // ----------------------------------------------------------------
-  // helpers
-  // ----------------------------------------------------------------
+  Future<void> _deleteDocument(String id, bool wasDefault) async {
+    await _collection.doc(id).delete();
 
-  Future<void> _fakeDelay() {
-    return Future.delayed(const Duration(milliseconds: 300));
-  }
-
-  void _clearDefaults() {
-    for (var i = 0; i < _methods.length; i++) {
-      if (_methods[i].isDefault) {
-        _methods[i] = _methods[i].copyWith(isDefault: false);
+    // If we deleted the default, give the "default" tag to someone else.
+    if (wasDefault) {
+      final remaining = _methods.where((m) => m.id != id).toList();
+      if (remaining.isNotEmpty) {
+        await _collection.doc(remaining.first.id).update({'isDefault': true});
       }
     }
-  }
-
-  /// There should always be exactly one default method (if any exist).
-  void _ensureOneDefault() {
-    if (_methods.isNotEmpty && !_methods.any((m) => m.isDefault)) {
-      _methods[0] = _methods[0].copyWith(isDefault: true);
-    }
-  }
-
-  /// A few sample transactions, with dates counted back from today.
-  static List<PaymentTransaction> _sampleTransactions() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    DateTime daysAgo(int days) => today.subtract(Duration(days: days));
-
-    return [
-      // E-wallet
-      PaymentTransaction(id: 't1', methodId: '1', title: 'Lunch · Nasi kandar', amount: 14.50, date: daysAgo(0)),
-      PaymentTransaction(id: 't2', methodId: '1', title: 'Ride to work', amount: 18.20, date: daysAgo(1)),
-      PaymentTransaction(id: 't3', methodId: '1', title: 'Groceries', amount: 76.90, date: daysAgo(2)),
-      PaymentTransaction(id: 't4', methodId: '1', title: 'Coffee', amount: 12.00, date: daysAgo(4)),
-      PaymentTransaction(id: 't5', methodId: '1', title: 'Movie tickets', amount: 38.00, date: daysAgo(5)),
-      // Cash
-      PaymentTransaction(id: 't6', methodId: '2', title: 'Wet market', amount: 32.00, date: daysAgo(0)),
-      PaymentTransaction(id: 't7', methodId: '2', title: 'Parking', amount: 6.00, date: daysAgo(2)),
-      PaymentTransaction(id: 't8', methodId: '2', title: 'Breakfast', amount: 9.50, date: daysAgo(3)),
-      // Card
-      PaymentTransaction(id: 't9', methodId: '3', title: 'Online shopping', amount: 189.00, date: daysAgo(1)),
-      PaymentTransaction(id: 't10', methodId: '3', title: 'Electricity bill', amount: 120.50, date: daysAgo(3)),
-      PaymentTransaction(id: 't11', methodId: '3', title: 'Streaming subscription', amount: 55.00, date: daysAgo(6)),
-      // Bank transfer (money coming in)
-      PaymentTransaction(id: 't12', methodId: '4', title: 'Transfer from family', amount: 200.00, date: daysAgo(2), isIncome: true),
-      PaymentTransaction(id: 't13', methodId: '4', title: 'Part-time income', amount: 400.00, date: daysAgo(5), isIncome: true),
-    ];
   }
 }
