@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
-      Navigator.popUntil(context, (route) => route.isFirst);
+      Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
       if (!mounted) return;
       _showMessage(e.toString());

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/transaction_item.dart';
+import '../services/category_helper.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
@@ -10,33 +12,17 @@ const _months = [
 ];
 const _incomeCategories = ['Salary', 'Allowance', 'Gift', 'Other'];
 
-/// Keyword -> category guesses. Extend freely.
-const _keywordCategory = <String, String>{
-  'grocer': 'Groceries', 'mart': 'Groceries', 'market': 'Groceries',
-  'tesco': 'Groceries', 'aeon': 'Groceries', 'mydin': 'Groceries',
-  'cafe': 'Food', 'coffee': 'Food', 'kopi': 'Food', 'mamak': 'Food',
-  'nasi': 'Food', 'restaurant': 'Food', 'lunch': 'Food', 'dinner': 'Food',
-  'petrol': 'Transport', 'grab': 'Transport', 'toll': 'Transport',
-  'lrt': 'Transport', 'mrt': 'Transport', 'parking': 'Transport',
-  'watsons': 'Personal Care', 'guardian': 'Personal Care',
-  'shopee': 'Shopping', 'lazada': 'Shopping', 'uniqlo': 'Shopping',
-  'tnb': 'Bills', 'unifi': 'Bills', 'bill': 'Bills', 'rent': 'Bills',
-  'movie': 'Entertainment', 'netflix': 'Entertainment',
-  'clinic': 'Health', 'pharmacy': 'Health',
-  'salary': 'Salary', 'allowance': 'Allowance',
-};
-
 class _Parsed {
   final String merchant;
   final double? amount;
-  final String? category;
-  const _Parsed(this.merchant, this.amount, this.category);
+  const _Parsed(this.merchant, this.amount);
 }
 
-/// "village grocer 17.35" -> Village Grocer / 17.35 / Groceries
+/// "village grocer 17.35" -> Village Grocer / 17.35
+/// (the category now comes from the FastAPI server)
 _Parsed _parse(String input) {
   final text = input.trim();
-  if (text.isEmpty) return const _Parsed('', null, null);
+  if (text.isEmpty) return const _Parsed('', null);
 
   final matches = RegExp(r'(\d+(?:\.\d{1,2})?)').allMatches(text).toList();
   double? amount;
@@ -54,15 +40,7 @@ _Parsed _parse(String input) {
       .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
       .join(' ');
 
-  final lower = merchant.toLowerCase();
-  String? category;
-  for (final e in _keywordCategory.entries) {
-    if (lower.contains(e.key)) {
-      category = e.value;
-      break;
-    }
-  }
-  return _Parsed(merchant, amount, category);
+  return _Parsed(merchant, amount);
 }
 
 /// Quick add: type "village grocer 17.35" and it fills in the rest.
@@ -80,23 +58,34 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
   DateTime _when = DateTime.now();
   String _payment = 'E-wallet';
 
-  _Parsed _parsed = const _Parsed('', null, null);
+  _Parsed _parsed = const _Parsed('', null);
   // Manual overrides from tapping the rows; cleared when the text changes.
   String? _merchantOv;
   double? _amountOv;
   String? _categoryOv;
 
+  // Server suggestion (FastAPI)
+  Timer? _debounce;
+  String? _serverCat;
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
   String get _merchant => _merchantOv ?? _parsed.merchant;
   double? get _amount => _amountOv ?? _parsed.amount;
-  String? get _category =>
-      _categoryOv ?? _parsed.category ?? (_merchant.isEmpty ? null : _fallback);
   String get _fallback => _type == TxType.expense ? 'Food' : 'Other';
+
+  String? get _category {
+    if (_categoryOv != null) return _categoryOv;
+    final cats =
+        _type == TxType.expense ? kExpenseCategories : _incomeCategories;
+    if (_serverCat != null && cats.contains(_serverCat)) return _serverCat;
+    return _merchant.isEmpty ? null : _fallback;
+  }
 
   bool get _canSave =>
       _merchant.isNotEmpty && _amount != null && _amount! > 0;
@@ -115,12 +104,35 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
     return '$day, $h:$m $ap';
   }
 
-  void _onChanged(String v) => setState(() {
-        _parsed = _parse(v);
-        _merchantOv = null;
-        _amountOv = null;
-        _categoryOv = null;
-      });
+  void _onChanged(String v) {
+    setState(() {
+      _parsed = _parse(v);
+      _merchantOv = null;
+      _amountOv = null;
+      _categoryOv = null;
+      _serverCat = null;
+    });
+    _debounce?.cancel();
+    if (v.trim().isEmpty) return;
+    _debounce = Timer(const Duration(milliseconds: 600), () => _askServer(v));
+  }
+
+  Future<void> _askServer(String text) async {
+    final r = await suggestFromText(text);
+    if (r == null || !mounted || _ctrl.text != text) return; // ignore stale replies
+    final cat = r['category'] as String?;
+    if (cat == null) return;
+
+    final newType = r['type'] == 'income' ? TxType.income : TxType.expense;
+    final cats =
+        newType == TxType.expense ? kExpenseCategories : _incomeCategories;
+    if (!cats.contains(cat)) return;
+
+    setState(() {
+      _type = newType;
+      _serverCat = cat;
+    });
+  }
 
   Future<void> _pickWhen() async {
     final d = await showDatePicker(
@@ -172,7 +184,8 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
     );
   }
 
-  Future<String?> _editText(String title, String initial, {bool number = false}) async {
+  Future<String?> _editText(String title, String initial,
+      {bool number = false}) async {
     final c = TextEditingController(text: initial);
     final r = await showDialog<String>(
       context: context,
@@ -202,10 +215,18 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
   }
 
   void _save() {
+    final category = _category ?? _fallback;
+
+    // Learn only when the user picked the category themselves,
+    // so a default guess never becomes a permanent "memory".
+    if (_categoryOv != null) {
+      rememberCategory(_merchant, category, income: _type == TxType.income);
+    }
+
     final item = TransactionItem(
       id: '${DateTime.now().microsecondsSinceEpoch}',
       title: _merchant,
-      category: _category ?? _fallback,
+      category: category,
       amount: _amount!,
       type: _type,
       date: _when,
@@ -340,8 +361,8 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                         child: _chip(_payment, () async {
-                      final v =
-                          await _pickFromList('Payment method', kPaymentMethods);
+                      final v = await _pickFromList(
+                          'Payment method', kPaymentMethods);
                       if (v != null) setState(() => _payment = v);
                     })),
                   ]),
@@ -377,7 +398,8 @@ class _QuickAddScreenState extends State<QuickAddScreen> {
         _categoryOv = null;
       });
 
-  Widget _typePill(String label, Color color, bool selected, VoidCallback onTap) {
+  Widget _typePill(
+      String label, Color color, bool selected, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(

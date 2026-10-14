@@ -3,13 +3,32 @@ import 'package:flutter/material.dart';
 import '../services/preferences_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/budgeting_style_sheet.dart';
 import '../widgets/currency_sheet.dart';
 import '../widgets/round_back_button.dart';
-import '../widgets/user_role_dialog.dart';
 
 class PreferencesScreen extends StatelessWidget {
   const PreferencesScreen({super.key});
+
+  static const _roles = ['Student', 'Working Adult'];
+  static const _styles = [
+    '50 / 30 / 20 Rule',
+    'Zero-Based Budgeting',
+    'Pay Yourself First',
+    'Envelope Method',
+  ];
+  static const _languages = ['English', 'Bahasa Melayu', '中文'];
+  static const _themes = ['Light', 'Dark', 'System'];
+
+  Future<void> _pickCurrency(BuildContext context) async {
+    final picked = await showCurrencySheet(
+      context,
+      selected: PreferencesStore.currency.value,
+    );
+    if (picked != null) {
+      PreferencesStore.currency.value = picked;
+      PreferencesStore.save();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,65 +44,74 @@ class PreferencesScreen extends StatelessWidget {
                 alignment: Alignment.center,
                 children: [
                   const Align(
-                      alignment: Alignment.centerLeft,
-                      child: RoundBackButton()),
+                    alignment: Alignment.centerLeft,
+                    child: RoundBackButton(),
+                  ),
                   Text('Preferences', style: AppTheme.heading(17)),
                 ],
               ),
             ),
-            const SizedBox(height: 22),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.paper,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppColors.border),
+            const SizedBox(height: 20),
+
+            // Preferred currency
+            _Card(
+              title: 'Preferred currency',
+              icon: Icons.payments_outlined,
+              tint: AppColors.sageTint,
+              child: ValueListenableBuilder<String>(
+                valueListenable: PreferencesStore.currency,
+                builder: (_, code, __) => InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _pickCurrency(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(code,
+                              style:
+                                  AppTheme.body(14, weight: FontWeight.w700)),
+                        ),
+                        const Icon(Icons.chevron_right,
+                            size: 20, color: AppColors.textFaint),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              child: Column(
-                children: [
-                  _PrefRow(
-                    title: 'Preferred currency',
-                    icon: Icons.payments_outlined,
-                    tint: AppColors.terracottaTint,
-                    value: PreferencesStore.currency,
-                    onTap: () async {
-                      final picked = await showCurrencySheet(context,
-                          selected: PreferencesStore.currency.value);
-                      if (picked != null) {
-                        PreferencesStore.currency.value = picked;
-                      }
-                    },
-                  ),
-                  const Divider(height: 1, color: AppColors.border),
-                  _PrefRow(
-                    title: 'Budgeting style',
-                    icon: Icons.pie_chart_outline,
-                    tint: AppColors.sageTint,
-                    value: PreferencesStore.budgetStyle,
-                    onTap: () async {
-                      final picked = await showBudgetingStyleSheet(context,
-                          selected: PreferencesStore.budgetStyle.value);
-                      if (picked != null) {
-                        PreferencesStore.budgetStyle.value = picked;
-                      }
-                    },
-                  ),
-                  const Divider(height: 1, color: AppColors.border),
-                  _PrefRow(
-                    title: 'User role',
-                    icon: Icons.badge_outlined,
-                    tint: AppColors.goldTint,
-                    value: PreferencesStore.role,
-                    onTap: () async {
-                      final picked = await showUserRoleDialog(context,
-                          selected: PreferencesStore.role.value);
-                      if (picked != null) {
-                        PreferencesStore.role.value = picked;
-                      }
-                    },
-                  ),
-                ],
-              ),
+            ),
+            const SizedBox(height: 14),
+
+            _ChoiceCard(
+              title: 'User type',
+              icon: Icons.school_outlined,
+              tint: AppColors.terracottaTint,
+              options: _roles,
+              notifier: PreferencesStore.role,
+            ),
+            const SizedBox(height: 14),
+            _ChoiceCard(
+              title: 'Budgeting style',
+              icon: Icons.pie_chart_outline,
+              tint: AppColors.goldTint,
+              options: _styles,
+              notifier: PreferencesStore.budgetStyle,
+            ),
+            const SizedBox(height: 14),
+            _ChoiceCard(
+              title: 'Language',
+              icon: Icons.language,
+              tint: AppColors.coralTint,
+              options: _languages,
+              notifier: PreferencesStore.language,
+            ),
+            const SizedBox(height: 14),
+            _ChoiceCard(
+              title: 'Theme',
+              icon: Icons.brightness_6_outlined,
+              tint: AppColors.sageTint,
+              options: _themes,
+              notifier: PreferencesStore.theme,
             ),
           ],
         ),
@@ -92,58 +120,109 @@ class PreferencesScreen extends StatelessWidget {
   }
 }
 
-class _PrefRow extends StatelessWidget {
+class _Card extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color tint;
-  final ValueNotifier<String> value;
-  final VoidCallback onTap;
-
-  const _PrefRow({
+  final Widget child;
+  const _Card({
     required this.title,
     required this.icon,
     required this.tint,
-    required this.value,
-    required this.onTap,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.paper,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: tint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20, color: AppColors.text),
+              ),
+              const SizedBox(width: 14),
+              Text(title, style: AppTheme.body(13.5, weight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color tint;
+  final List<String> options;
+  final ValueNotifier<String> notifier;
+  const _ChoiceCard({
+    required this.title,
+    required this.icon,
+    required this.tint,
+    required this.options,
+    required this.notifier,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      title: title,
+      icon: icon,
+      tint: tint,
+      child: ValueListenableBuilder<String>(
+        valueListenable: notifier,
+        builder: (_, selected, __) => Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: tint,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 20, color: AppColors.text),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: AppTheme.body(13.5, weight: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  ValueListenableBuilder<String>(
-                    valueListenable: value,
-                    builder: (_, v, __) => Text(v,
-                        style:
-                            AppTheme.body(11.5, color: AppColors.textMuted)),
+            for (final o in options)
+              GestureDetector(
+                onTap: () {
+                  notifier.value = o;
+                  PreferencesStore.save();
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: o == selected
+                        ? AppColors.terracotta
+                        : AppColors.background,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: o == selected
+                          ? AppColors.terracotta
+                          : AppColors.border,
+                    ),
                   ),
-                ],
+                  child: Text(
+                    o,
+                    style: AppTheme.body(
+                      12,
+                      weight: FontWeight.w700,
+                      color: o == selected ? Colors.white : AppColors.text,
+                    ),
+                  ),
+                ),
               ),
-            ),
-            const Icon(Icons.chevron_right,
-                size: 20, color: AppColors.textFaint),
           ],
         ),
       ),

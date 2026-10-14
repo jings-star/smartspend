@@ -3,6 +3,7 @@ import '../models/savings_goal.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/dashboard_data.dart';
+import 'chat_screen.dart';
 
 const _lavender = Color(0xFFEAE4F5);
 const _purple = Color(0xFF7B5EA7);
@@ -231,6 +232,30 @@ class _AssistantSheetState extends State<_AssistantSheet> {
                   ),
                 ),
               ),
+              InkWell(
+  borderRadius: BorderRadius.circular(14),
+  onTap: () {
+    final nav = Navigator.of(context);
+    nav.pop(); // close the sheet
+    nav.push(MaterialPageRoute(builder: (_) => const ChatScreen()));
+  },
+  child: Container(
+    height: 44,
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    alignment: Alignment.centerLeft,
+    decoration: BoxDecoration(
+      color: _purple,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(children: [
+      const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.white),
+      const SizedBox(width: 10),
+      Text('Ask about my transactions',
+          style: AppTheme.body(12,
+              weight: FontWeight.w700, color: Colors.white)),
+    ]),
+  ),
+),
           ]),
         ),
       ),

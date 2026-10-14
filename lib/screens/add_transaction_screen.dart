@@ -4,10 +4,21 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/split_sheet.dart';
+import '../services/category_helper.dart';
 
 const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 const _incomeCategories = ['Salary', 'Allowance', 'Gift', 'Other'];
@@ -56,8 +67,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String _fmtAmt(double v) =>
       v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
   /// Keeps the main amount equal to the sum of the splits.
   void _syncAmount() {
@@ -73,18 +84,29 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     );
     if (picked != null) {
       final now = DateTime.now();
-      setState(() => _date =
-          DateTime(picked.year, picked.month, picked.day, now.hour, now.minute));
+      setState(
+        () => _date = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          now.hour,
+          now.minute,
+        ),
+      );
     }
   }
 
-  Future<String?> _pickFromList(String title, List<String> options,
-      {bool emoji = false}) {
+  Future<String?> _pickFromList(
+    String title,
+    List<String> options, {
+    bool emoji = false,
+  }) {
     return showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppColors.paper,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       builder: (_) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
@@ -102,11 +124,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: emoji
-                            ? Text(kCategoryEmoji[o] ?? '📦',
-                                style: const TextStyle(fontSize: 20))
+                            ? Text(
+                                kCategoryEmoji[o] ?? '📦',
+                                style: const TextStyle(fontSize: 20),
+                              )
                             : null,
-                        title: Text(o,
-                            style: AppTheme.body(14, weight: FontWeight.w600)),
+                        title: Text(
+                          o,
+                          style: AppTheme.body(14, weight: FontWeight.w600),
+                        ),
                         onTap: () => Navigator.pop(context, o),
                       ),
                   ],
@@ -153,6 +179,30 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       a.type == b.type &&
       (a.amount - b.amount).abs() < 0.005;
 
+  /// Runs when the user finishes typing in Notes (e.g. "Starbucks RM18.50").
+Future<void> _suggestFromNote() async {
+  final text = _notesCtrl.text.trim();
+  if (text.isEmpty || _category != null) return; // don't override the user's choice
+
+  final r = await suggestFromText(text);
+  if (r == null || !mounted) return;
+
+  final newType = r['type'] == 'income' ? TxType.income : TxType.expense;
+  final cats = newType == TxType.expense ? kExpenseCategories : _incomeCategories;
+  final cat = r['category'] as String?;
+  final amt = r['amount'];
+  final title = (r['title'] as String?)?.trim() ?? '';
+
+  setState(() {
+    _type = newType;
+    if (cat != null && cats.contains(cat)) _category = cat;
+    if (amt != null && _amountCtrl.text.trim().isEmpty && !_amountLocked) {
+      _amountCtrl.text = _fmtAmt((amt as num).toDouble());
+      if (title.isNotEmpty) _notesCtrl.text = title; // "Starbucks RM18.50" becomes "Starbucks"
+    }
+  });
+}
+
   Future<void> _save() async {
     final total = double.tryParse(_amountCtrl.text.trim());
     if (total == null || total <= 0) {
@@ -174,26 +224,30 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     if (_split && _splits.isNotEmpty) {
       for (int i = 0; i < _splits.length; i++) {
-        items.add(TransactionItem(
-          id: '${base}_$i',
-          title: _splits[i].label,
+        items.add(
+          TransactionItem(
+            id: '${base}_$i',
+            title: _splits[i].label,
+            category: _category!,
+            amount: _splits[i].amount,
+            type: _type,
+            date: _date,
+            paymentMethod: _payment!,
+          ),
+        );
+      }
+    } else {
+      items.add(
+        TransactionItem(
+          id: '$base',
+          title: note.isEmpty ? _category! : note,
           category: _category!,
-          amount: _splits[i].amount,
+          amount: total,
           type: _type,
           date: _date,
           paymentMethod: _payment!,
-        ));
-      }
-    } else {
-      items.add(TransactionItem(
-        id: '$base',
-        title: note.isEmpty ? _category! : note,
-        category: _category!,
-        amount: total,
-        type: _type,
-        date: _date,
-        paymentMethod: _payment!,
-      ));
+        ),
+      );
     }
 
     // Duplicate check: collect the new items that clash with saved ones.
@@ -251,8 +305,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: AppColors.border),
                         ),
-                        child: const Icon(Icons.chevron_left,
-                            size: 20, color: AppColors.text),
+                        child: const Icon(
+                          Icons.chevron_left,
+                          size: 20,
+                          color: AppColors.text,
+                        ),
                       ),
                     ),
                   ),
@@ -265,15 +322,27 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
-                  Row(children: [
-                    Expanded(
-                        child: _typePill('Expense', AppColors.coral,
-                            isExpense, () => _setType(TxType.expense))),
-                    const SizedBox(width: 10),
-                    Expanded(
-                        child: _typePill('Income', AppColors.sage, !isExpense,
-                            () => _setType(TxType.income))),
-                  ]),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _typePill(
+                          'Expense',
+                          AppColors.coral,
+                          isExpense,
+                          () => _setType(TxType.expense),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _typePill(
+                          'Income',
+                          AppColors.sage,
+                          !isExpense,
+                          () => _setType(TxType.income),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   _FieldBox(
                     label: 'AMOUNT',
@@ -282,20 +351,28 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       readOnly: _amountLocked,
                       textAlign: TextAlign.right,
                       keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      style: AppTheme.body(14,
-                          weight: FontWeight.w700, color: AppColors.text),
+                        decimal: true,
+                      ),
+                      style: AppTheme.body(
+                        14,
+                        weight: FontWeight.w700,
+                        color: AppColors.text,
+                      ),
                       decoration: InputDecoration(
                         isDense: true,
                         border: InputBorder.none,
                         prefixText: 'RM ',
-                        prefixStyle: AppTheme.body(14,
-                            weight: FontWeight.w700,
-                            color: AppColors.textMuted),
+                        prefixStyle: AppTheme.body(
+                          14,
+                          weight: FontWeight.w700,
+                          color: AppColors.textMuted,
+                        ),
                         hintText: '0',
-                        hintStyle: AppTheme.body(14,
-                            weight: FontWeight.w700,
-                            color: AppColors.textFaint),
+                        hintStyle: AppTheme.body(
+                          14,
+                          weight: FontWeight.w700,
+                          color: AppColors.textFaint,
+                        ),
                       ),
                     ),
                   ),
@@ -307,22 +384,31 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   _FieldBox(
                     label: 'CATEGORY',
                     onTap: () async {
-                      final c = await _pickFromList('Category', categories,
-                          emoji: true);
+                      final c = await _pickFromList(
+                        'Category',
+                        categories,
+                        emoji: true,
+                      );
                       if (c != null) setState(() => _category = c);
                     },
-                    child: _value(_category ?? 'Select category',
-                        filled: _category != null),
+                    child: _value(
+                      _category ?? 'Select category',
+                      filled: _category != null,
+                    ),
                   ),
                   _FieldBox(
                     label: 'PAYMENT METHOD',
                     onTap: () async {
-                      final p =
-                          await _pickFromList('Payment method', kPaymentMethods);
+                      final p = await _pickFromList(
+                        'Payment method',
+                        kPaymentMethods,
+                      );
                       if (p != null) setState(() => _payment = p);
                     },
-                    child: _value(_payment ?? 'Select method',
-                        filled: _payment != null),
+                    child: _value(
+                      _payment ?? 'Select method',
+                      filled: _payment != null,
+                    ),
                   ),
                   _FieldBox(
                     label: 'NOTES',
@@ -337,24 +423,30 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.only(top: 6),
                         hintText: 'Add a note',
-                        hintStyle: AppTheme.body(14,
-                            weight: FontWeight.w600,
-                            color: AppColors.textFaint),
+                        hintStyle: AppTheme.body(
+                          14,
+                          weight: FontWeight.w600,
+                          color: AppColors.textFaint,
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(children: [
-                    Text('Split transaction',
-                        style: AppTheme.body(13, weight: FontWeight.w700)),
-                    const Spacer(),
-                    Switch(
-                      value: _split,
-                      activeTrackColor: AppColors.terracotta,
-                      activeThumbColor: Colors.white,
-                      onChanged: (v) => setState(() => _split = v),
-                    ),
-                  ]),
+                  Row(
+                    children: [
+                      Text(
+                        'Split transaction',
+                        style: AppTheme.body(13, weight: FontWeight.w700),
+                      ),
+                      const Spacer(),
+                      Switch(
+                        value: _split,
+                        activeTrackColor: AppColors.terracotta,
+                        activeThumbColor: Colors.white,
+                        onChanged: (v) => setState(() => _split = v),
+                      ),
+                    ],
+                  ),
                   if (_split) _splitCard(),
                   const SizedBox(height: 16),
                 ],
@@ -375,12 +467,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   void _setType(TxType t) => setState(() {
-        _type = t;
-        _category = null; // category lists differ per type
-      });
+    _type = t;
+    _category = null; // category lists differ per type
+  });
 
   Widget _typePill(
-      String label, Color color, bool selected, VoidCallback onTap) {
+    String label,
+    Color color,
+    bool selected,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -390,19 +486,26 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           color: selected ? color : color.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(21),
         ),
-        child: Text(label,
-            style: AppTheme.body(13,
-                weight: FontWeight.w700, color: Colors.white)),
+        child: Text(
+          label,
+          style: AppTheme.body(
+            13,
+            weight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
       ),
     );
   }
 
   Widget _value(String text, {required bool filled}) => Text(
-        text,
-        style: AppTheme.body(14,
-            weight: FontWeight.w600,
-            color: filled ? AppColors.text : AppColors.textFaint),
-      );
+    text,
+    style: AppTheme.body(
+      14,
+      weight: FontWeight.w600,
+      color: filled ? AppColors.text : AppColors.textFaint,
+    ),
+  );
 
   Widget _splitCard() {
     return Container(
@@ -421,43 +524,55 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               onDismissed: (_) => _removeSplit(i),
               background: Container(
                 alignment: Alignment.centerRight,
-                child: const Icon(Icons.delete_outline,
-                    color: AppColors.coral),
+                child: const Icon(Icons.delete_outline, color: AppColors.coral),
               ),
               child: InkWell(
                 onTap: () => _openSplitSheet(index: i), // edit
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Row(children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: i.isEven
-                            ? AppColors.sageTint
-                            : AppColors.coralTint,
-                        borderRadius: BorderRadius.circular(10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: i.isEven
+                              ? AppColors.sageTint
+                              : AppColors.coralTint,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _splits[i].icon,
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ),
-                      child: Text(_splits[i].icon,
-                          style: const TextStyle(fontSize: 16)),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: Text(_splits[i].label,
-                            style:
-                                AppTheme.body(13, weight: FontWeight.w600))),
-                    Text('RM ${_fmtAmt(_splits[i].amount)}',
-                        style: AppTheme.body(13,
-                            weight: FontWeight.w800,
-                            color: AppColors.terracottaDark)),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => _removeSplit(i), // delete
-                      child: const Icon(Icons.close,
-                          size: 16, color: AppColors.textFaint),
-                    ),
-                  ]),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _splits[i].label,
+                          style: AppTheme.body(13, weight: FontWeight.w600),
+                        ),
+                      ),
+                      Text(
+                        'RM ${_fmtAmt(_splits[i].amount)}',
+                        style: AppTheme.body(
+                          13,
+                          weight: FontWeight.w800,
+                          color: AppColors.terracottaDark,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _removeSplit(i), // delete
+                        child: const Icon(
+                          Icons.close,
+                          size: 16,
+                          color: AppColors.textFaint,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -465,10 +580,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           ],
           TextButton(
             onPressed: () => _openSplitSheet(), // create
-            child: Text('+ Add split',
-                style: AppTheme.body(11,
-                    weight: FontWeight.w700,
-                    color: AppColors.terracottaDark)),
+            child: Text(
+              '+ Add split',
+              style: AppTheme.body(
+                11,
+                weight: FontWeight.w700,
+                color: AppColors.terracottaDark,
+              ),
+            ),
           ),
         ],
       ),
@@ -491,9 +610,14 @@ class _FieldBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelText = Text(label,
-        style: AppTheme.body(10,
-            weight: FontWeight.w700, color: AppColors.textFaint));
+    final labelText = Text(
+      label,
+      style: AppTheme.body(
+        10,
+        weight: FontWeight.w700,
+        color: AppColors.textFaint,
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -510,20 +634,25 @@ class _FieldBox extends StatelessWidget {
           child: stacked
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [labelText, child])
-              : Row(children: [
-                  labelText,
-                  const SizedBox(width: 12),
-                  Expanded(
+                  children: [labelText, child],
+                )
+              : Row(
+                  children: [
+                    labelText,
+                    const SizedBox(width: 12),
+                    Expanded(
                       child: Align(
-                          alignment: Alignment.centerRight, child: child)),
-                ]),
+                        alignment: Alignment.centerRight,
+                        child: child,
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
   }
 }
-
 
 /// Returns `true` for "Continue Save", `false` for "Discard this entry".
 Future<bool?> showDuplicateDialog(
@@ -588,8 +717,11 @@ class _DuplicateDialog extends StatelessWidget {
                 color: AppColors.coralTint,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.warning_amber_rounded,
-                  size: 24, color: AppColors.terracottaDark),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                size: 24,
+                color: AppColors.terracottaDark,
+              ),
             ),
             const SizedBox(height: 14),
             Text('Duplicate Detected', style: AppTheme.heading(20)),
@@ -625,11 +757,17 @@ class _DuplicateDialog extends StatelessWidget {
                   backgroundColor: AppColors.paper,
                   side: const BorderSide(color: AppColors.border),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25)),
+                    borderRadius: BorderRadius.circular(25),
+                  ),
                 ),
-                child: Text('Continue Save',
-                    style: AppTheme.body(13,
-                        weight: FontWeight.w700, color: AppColors.text)),
+                child: Text(
+                  'Continue Save',
+                  style: AppTheme.body(
+                    13,
+                    weight: FontWeight.w700,
+                    color: AppColors.text,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -648,51 +786,68 @@ class _DuplicateDialog extends StatelessWidget {
     final isExpense = t.type == TxType.expense;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isNew ? AppColors.coralTint : AppColors.sageTint,
-            borderRadius: BorderRadius.circular(12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isNew ? AppColors.coralTint : AppColors.sageTint,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              kCategoryEmoji[t.category] ?? '📦',
+              style: const TextStyle(fontSize: 18),
+            ),
           ),
-          child: Text(kCategoryEmoji[t.category] ?? '📦',
-              style: const TextStyle(fontSize: 18)),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text.rich(TextSpan(
-                children: [
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text.rich(
                   TextSpan(
-                      text: t.title,
-                      style: AppTheme.body(13,
-                          weight: FontWeight.w700, color: AppColors.text)),
-                  if (isNew)
-                    TextSpan(
-                        text: '  (new)',
-                        style: AppTheme.body(11,
+                    children: [
+                      TextSpan(
+                        text: t.title,
+                        style: AppTheme.body(
+                          13,
+                          weight: FontWeight.w700,
+                          color: AppColors.text,
+                        ),
+                      ),
+                      if (isNew)
+                        TextSpan(
+                          text: '  (new)',
+                          style: AppTheme.body(
+                            11,
                             weight: FontWeight.w700,
-                            color: AppColors.terracottaDark)),
-                ],
-              )),
-              const SizedBox(height: 2),
-              Text(_when(t.date),
-                  style: AppTheme.body(11, color: AppColors.textMuted)),
-            ],
+                            color: AppColors.terracottaDark,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _when(t.date),
+                  style: AppTheme.body(11, color: AppColors.textMuted),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '${isExpense ? '-' : '+'} RM ${t.amount.toStringAsFixed(2)}',
-          style: AppTheme.body(13,
+          const SizedBox(width: 8),
+          Text(
+            '${isExpense ? '-' : '+'} RM ${t.amount.toStringAsFixed(2)}',
+            style: AppTheme.body(
+              13,
               weight: FontWeight.w800,
-              color: isExpense ? AppColors.terracottaDark : AppColors.sage),
-        ),
-      ]),
+              color: isExpense ? AppColors.terracottaDark : AppColors.sage,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

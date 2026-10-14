@@ -1,20 +1,23 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../services/app_entry_preferences.dart';
 import '../services/guest_mode.dart';
+import '../services/preferences_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/currency_sheet.dart';
 import '../widgets/guest_banner.dart';
 import '../widgets/logout_sheet.dart';
 import 'category_screen.dart';
 import 'edit_profile_screen.dart';
+import 'login_screen.dart';
 import 'payment_methods_screen.dart';
 import 'preferences_screen.dart';
 import 'recurring_screen.dart';
-import 'login_screen.dart';
-import '../services/app_entry_preferences.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -24,20 +27,93 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _currency = 'MYR'; // TODO: load/save with the user's preferences
   String _nickname = 'Guest';
+  StreamSubscription<User?>? _authSub;
 
   bool get _isGuest => FirebaseAuth.instance.currentUser == null;
 
-  // TODO: replace with real stats.
-  static const _daysTracking = 36;
-  static const _logged = 34;
-  static const _thisMonth = 5;
+  int _daysTracking = 0;
+  int _logged = 0;
+  int _thisMonth = 0;
 
   @override
   void initState() {
     super.initState();
     _loadUser();
+    _loadStats();
+    PreferencesStore.load();
+    // Rebuild whenever the user logs in or out.
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (!mounted) return;
+      setState(() {});
+      _loadUser();
+      _loadStats();
+      if (user != null) PreferencesStore.load();
+    });
+  }
+
+  /// Real stats. Assumes transactions live at users/{uid}/transactions
+  /// with a `date` field (Timestamp).
+  ///  - Days tracking: days since the account was created
+  ///  - Logged: total number of transactions
+  ///  - This month: transactions dated in the current month
+  Future<void> _loadStats() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        setState(() {
+          _daysTracking = 0;
+          _logged = 0;
+          _thisMonth = 0;
+        });
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final created = user.metadata.creationTime ?? now;
+    final days = DateTime(now.year, now.month, now.day)
+            .difference(DateTime(created.year, created.month, created.day))
+            .inDays +
+        1;
+
+    var logged = 0;
+    var thisMonth = 0;
+    try {
+      final col = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions');
+
+      final total = await col.count().get();
+      final month = await col
+          .where(
+            'date',
+            isGreaterThanOrEqualTo:
+                Timestamp.fromDate(DateTime(now.year, now.month)),
+          )
+          .count()
+          .get();
+
+      logged = total.count ?? 0;
+      thisMonth = month.count ?? 0;
+    } catch (_) {
+      // offline etc.: keep zeros
+    }
+
+    if (mounted) {
+      setState(() {
+        _daysTracking = days;
+        _logged = logged;
+        _thisMonth = thisMonth;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadUser() async {
@@ -58,11 +134,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // offline etc.: keep the fallback name
     }
     if (mounted) setState(() => _nickname = name);
-  }
-
-  Future<void> _pickCurrency() async {
-    final picked = await showCurrencySheet(context, selected: _currency);
-    if (picked != null && mounted) setState(() => _currency = picked);
   }
 
   /// Guests cannot use account features: send them to log in.
@@ -104,27 +175,113 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-Future<void> _logout() async {
-  final confirmed = await showLogoutSheet(context);
-  if (!confirmed || !mounted) return;
+  /// Clears the whole stack and shows the login screen.
+  Future<void> _goToLogin() async {
+    GuestMode.isGuest.value = false;
+    await AppEntryPreferences.chooseAccount();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false, // Back can't return to the app
+    );
+  }
 
-  await FirebaseAuth.instance.signOut();
-  GuestMode.isGuest.value = false;
-  await AppEntryPreferences.chooseAccount();
+  Future<void> _logout() async {
+    final confirmed = await showLogoutSheet(context);
+    if (!confirmed || !mounted) return;
 
-  if (!mounted) return;
-  Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(builder: (_) => const LoginScreen()),
-    (route) => false, // clear the whole stack so Back can't return to the app
-  );
-}
+    await FirebaseAuth.instance.signOut();
+    PreferencesStore.reset();
+    await _goToLogin();
+  }
 
-  void _snack(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Asks the user to prove who they are before a sensitive action.
+  /// Returns true if re-authentication succeeded.
+  Future<bool> _reauthenticate(User user) async {
+    final isPasswordUser =
+        user.providerData.any((p) => p.providerId == 'password');
+
+    try {
+      if (isPasswordUser) {
+        final controller = TextEditingController();
+        final password = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.paper,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            title: Text('Confirm your password', style: AppTheme.heading(20)),
+            content: TextField(
+              controller: controller,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'Current password'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Cancel',
+                  style: AppTheme.body(13, weight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, controller.text),
+                child: Text(
+                  'Confirm',
+                  style: AppTheme.body(
+                    13,
+                    weight: FontWeight.w700,
+                    color: AppColors.coral,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (password == null || password.isEmpty) return false;
+
+        final cred = EmailAuthProvider.credential(
+          email: user.email!,
+          password: password,
+        );
+        await user.reauthenticateWithCredential(cred);
+        return true;
+      }
+
+      // Google sign-in users
+      if (kIsWeb) {
+        await user.reauthenticateWithPopup(GoogleAuthProvider());
+      } else {
+        await user.reauthenticateWithProvider(GoogleAuthProvider());
+      }
+      return true;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        _snack('Password is incorrect.');
+      } else if (e.code != 'popup-closed-by-user' &&
+          e.code != 'cancelled-popup-request') {
+        _snack(e.message ?? 'Could not verify your identity.');
+      }
+      return false;
+    }
+  }
 
   Future<void> _deleteAccount() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+
+    // Re-authenticate FIRST so we never delete data and then fail on
+    // user.delete().
+    final ok = await _reauthenticate(user);
+    if (!ok || !mounted) return;
+
     try {
       // Removes the profile document. If you store expenses etc. under
       // users/{uid}/..., delete those too (or use a Cloud Function).
@@ -133,14 +290,12 @@ Future<void> _logout() async {
           .doc(user.uid)
           .delete();
       await user.delete();
-      GuestMode.isGuest.value = false;
-      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+      PreferencesStore.reset();
+      await _goToLogin();
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'requires-recent-login') {
-        _snack('Please log out and log in again, then retry deleting.');
-      } else {
-        _snack(e.message ?? 'Could not delete account.');
-      }
+      _snack(e.message ?? 'Could not delete account.');
+    } catch (_) {
+      _snack('Could not delete account. Check your connection and try again.');
     }
   }
 
@@ -150,7 +305,10 @@ Future<void> _logout() async {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _loadStats,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           children: [
             _TitleBar(),
@@ -158,11 +316,9 @@ Future<void> _logout() async {
             if (guest) const GuestBanner(),
             _Header(
               initial: _nickname.isEmpty ? '?' : _nickname[0].toUpperCase(),
-              currency: _currency,
-              onCurrencyTap: _pickCurrency,
             ),
             const SizedBox(height: 18),
-            const _StatsCard(
+            _StatsCard(
               days: _daysTracking,
               logged: _logged,
               thisMonth: _thisMonth,
@@ -242,7 +398,8 @@ Future<void> _logout() async {
                 onTap: () => _confirmDelete(context),
               ),
             ],
-            ],
+          ],
+        ),
         ),
       ),
     );
@@ -302,13 +459,7 @@ class _TitleBar extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   final String initial;
-  final String currency;
-  final VoidCallback onCurrencyTap;
-  const _Header({
-    required this.initial,
-    required this.currency,
-    required this.onCurrencyTap,
-  });
+  const _Header({required this.initial});
 
   @override
   Widget build(BuildContext context) {
@@ -347,22 +498,31 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(width: 14),
         Expanded(
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              const _Tag(
-                'Student',
-                AppColors.terracottaTint,
-                icon: Icons.school_outlined,
-              ),
-              _Tag(currency, AppColors.sageTint, onTap: onCurrencyTap),
-              const _Tag(
-                'Balanced Saver',
-                AppColors.goldTint,
-                icon: Icons.auto_awesome,
-              ),
-            ],
+          child: AnimatedBuilder(
+            animation: Listenable.merge([
+              PreferencesStore.role,
+              PreferencesStore.currency,
+            ]),
+            builder: (_, __) => Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _Tag(
+                  PreferencesStore.role.value,
+                  AppColors.terracottaTint,
+                  icon: PreferencesStore.role.value == 'Student'
+                      ? Icons.school_outlined
+                      : Icons.work_outline,
+                ),
+                _Tag(PreferencesStore.currency.value, AppColors.sageTint),
+                // TODO: replace with the AI financial profile result.
+                const _Tag(
+                  'Balanced Saver',
+                  AppColors.goldTint,
+                  icon: Icons.auto_awesome,
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -517,7 +677,6 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-/// White pill with centered label (Log out / Delete account).
 class _PillButton extends StatelessWidget {
   final String label;
   final IconData? icon;
